@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from knowledge_mining.mining.agent_creation.routes import get_creation_service
 from knowledge_mining.mining.api.deps import get_domain_async_pool
 from knowledge_mining.mining.kb.auth import current_user
 from knowledge_mining.mining.knowledge_product.repository import ScopeItem
@@ -472,10 +473,9 @@ async def get_definition(
 async def update_definition(
     product_id: str,
     payload: DefinitionUpdate,
-    request: Request,
-    domain: str = Query(...),
     user: dict = Depends(current_user),
     service: KnowledgeProductService = Depends(get_product_service),
+    creation: Any = Depends(get_creation_service),
 ) -> dict[str, Any]:
     """改制品定义 = 开新的一版，并**立即撤销该制品的在用票据**。
 
@@ -483,8 +483,6 @@ async def update_definition(
     了这次改动（50号 §7.1「资料或字段定义变更后，旧票据不能按旧范围继续提交」）。
     两件事在这里组合，而不是让载体层反过来依赖制作面。
     """
-    from knowledge_mining.mining.agent_creation.routes import get_creation_service
-
     try:
         definition = await service.update_definition(
             product_id,
@@ -508,7 +506,6 @@ async def update_definition(
     except NotFound as exc:
         raise HTTPException(404, str(exc)) from exc
 
-    creation = await get_creation_service(request, domain)
     revoked = await creation.invalidate_product_tickets(
         product_id, reason="制品定义已更新，旧票据按旧定义提交不再有效",
     )
