@@ -163,11 +163,42 @@ def test_parameter_conflicts_are_explicit_errors(monkeypatch) -> None:
         server.get_knowledge(ref="st_X", relation="children", mode="exact")
 
 
-def test_tool_registry_is_the_three_piece_family() -> None:
+def test_default_open_tools_are_exactly_these_five() -> None:
+    """默认开放集锁死成员——工具清单蔓延要过这一关。
+
+    原为三件套（2026-08-31 两轮收敛 9→7→3）。52号 P6 加了制品消费两件：它们与
+    证据三件套**正交**（那三个查原始资料，这两个查已发布结论），不是「功能类似」
+    该被合并的那种；且只读、按钥匙绑定域收窄。再加工具仍须过这条断言。
+    """
     from mcp_server.identity import TOOL_NAMES
     assert TOOL_NAMES == frozenset({
         "search_knowledge", "get_knowledge", "upload_document",
+        "search_products", "get_product",
     })
+
+
+def test_creation_tools_stay_out_of_the_default_set() -> None:
+    """制作工具只认显式开启——并进默认集会让每把存量钥匙凭空多出两个工具。"""
+    from mcp_server.identity import ALL_TOOL_NAMES, CREATION_TOOL_NAMES, TOOL_NAMES
+
+    assert not (CREATION_TOOL_NAMES & TOOL_NAMES)
+    assert ALL_TOOL_NAMES == TOOL_NAMES | CREATION_TOOL_NAMES
+
+    unconfigured = Identity(
+        username="a", user_id="u", key_id="k",
+        key_domain="cloud_core_network", open_kbs=(),
+    )
+    assert unconfigured.open_tools is None, "未配置 open_tools = 全开那条默认"
+    assert unconfigured.tool_enabled("get_product")
+    assert not unconfigured.tool_enabled("submit_creation_result")
+
+
+def test_tool_names_match_the_mining_whitelist() -> None:
+    """两侧清单必须一一对应，否则 admin 配得上的工具 MCP 侧认不得。"""
+    from mcp_server.identity import ALL_TOOL_NAMES
+    from knowledge_mining.mining.kb.services.mcp_key_service import MCP_TOOL_NAMES
+
+    assert ALL_TOOL_NAMES == MCP_TOOL_NAMES
 
 
 # ── upload_document 两步直传（2026-09-11 改造：无 base64） ────────────────

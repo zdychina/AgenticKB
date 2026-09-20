@@ -237,6 +237,55 @@ class MemoryKnowledgeProductRepository:
             if object_id is None or ref.object_id == object_id
         ]
 
+    # ---------------------------------------------------------------- 已发布面
+
+    def _published_rows(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for product_id, product in self._products.items():
+            released = product.get("released_revision")
+            if released is None:
+                continue
+            for row in self._objects.get((product_id, int(released)), []):
+                out.append({
+                    "product_id": product_id,
+                    "product_name": product.get("name") or product_id,
+                    "object_id": row.object_id,
+                    "revision_no": int(released),
+                    "type": row.type,
+                    "layer": row.layer,
+                    "scope": row.scope,
+                    "name": row.name,
+                    "frontmatter_json": row.frontmatter,
+                    "storage_object_id": row.storage_object_id,
+                    "review_status": row.review_status,
+                })
+        return out
+
+    async def list_published_products(self) -> list[dict[str, Any]]:
+        out = []
+        for product in self._products.values():
+            released = product.get("released_revision")
+            if released is None:
+                continue
+            row = dict(product)
+            row["object_count"] = len(self._objects.get((product["id"], int(released)), []))
+            out.append(row)
+        return out
+
+    async def get_published_objects(self, object_ids: Sequence[str]) -> list[dict[str, Any]]:
+        wanted = set(object_ids)
+        return [r for r in self._published_rows() if r["object_id"] in wanted]
+
+    async def list_published_objects(
+        self, *, product_id: str | None = None, type_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        rows = self._published_rows()
+        if product_id:
+            rows = [r for r in rows if r["product_id"] == product_id]
+        if type_name:
+            rows = [r for r in rows if r["type"] == type_name]
+        return sorted(rows, key=lambda r: (r["product_id"], r["layer"], r["object_id"]))
+
     # ---------------------------------------------------------------- 人审与试用
 
     async def set_review_status(

@@ -40,8 +40,18 @@ from mcp_server.schemas import SearchInput
 DEFAULT_INSTRUCTIONS = """\
 你是多领域知识证据检索服务（用户级接入：调用必须携带 Bearer 密钥）。
 
-只有三个工具：search_knowledge 模糊找、get_knowledge 深入读、upload_document 上传
-（两步：先拿 upload_url，再 PUT 文件原始字节，不要 base64）。
+工具分两族，回答问题前先判断走哪族：
+
+【知识制品】search_products 找、get_product 读——已经整理、校准、逐字段可回源的
+成果（规格表、事实集、规则包、本体模块）。**高频且稳定的问题先查这里**：命中就
+省掉一轮原文检索，而且结论是人审过的，带出处。
+【原始证据】search_knowledge 模糊找、get_knowledge 深入读——文档与段落原文。
+制品里没有、制品不适用、或需要长尾查证时走这条。
+另有 upload_document 上传（两步：先拿 upload_url，再 PUT 原始字节，不要 base64）。
+
+决策树：先 search_products；零结果或候选都不贴题 → search_knowledge。
+两族可以混用：制品给你结论和出处，原始证据给你上下文和长尾。制品的 md 里带
+document_id / snapshot_id / segment_id，可以直接拿去 get_knowledge 回原文核对。
 
 知识按三层组织：知识域（domain）→ 知识库（knowledge base）→ 文档（document）。
 密钥主人决定开放哪些知识库；每把钥匙绑定一个知识域——domain 参数可不传
@@ -590,6 +600,88 @@ def submit_creation_result(
         task_ticket, submission_id, based_on_draft_revision, documents,
         _domain(ident, None), product_id,
     )
+
+# ── 制品消费工具族（52号 P6）──────────────────────────────────────────────
+# 与证据三件套**正交**：那三个查原始资料，这两个查已发布的结论。
+# 决策树写在工具描述里：先查制品，不命中或不适用再回 search_knowledge。
+
+
+@mcp.tool()
+def search_products(
+    terms: list[str],
+    match: str = "any",
+    product_id: str | None = None,
+    type: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> dict:
+    """在**已发布的知识制品**里按关键词定位候选——不知道对象 ID 时的入口。
+
+    知识制品是已经整理、校准、逐字段可回源的成果（规格表、事实集、规则包、
+    本体模块等）。**高频且稳定的问题先查这里**：命中就省掉一轮原文检索，而且
+    结论是人审过的。这里查不到、或制品不适用，再回 search_knowledge 查原始资料。
+
+    返回 hits（候选对象）+ facets（结果构成，据此决定收窄哪一维）+ diagnostics
+    （每词命中数；零结果时给恢复码 USE_MATCH_ANY / REMOVE_OR_REPHRASE_TERM /
+    RELAX_FILTERS）。
+
+    ⚠️ **hits 里的 snippets 不是权威依据**——它只用于挑对象。选定候选后必须用
+    get_product 取完整正文再引用。
+
+    搜索覆盖对象 ID、名称和 frontmatter 里的结构化字段（事实型制品的数据值都在
+    那里）。**不搜正文散文**——Wiki/专题页这类靠正文承载内容的制品，搜不到不代表
+    没有，可先用 get_product 列出制品再逐个看。
+
+    Args:
+        terms: 1~10 个关键词，每项是一个字面词或短语。规范化后去重。
+        match: any=任一命中（召回优先，默认）；all=全部命中。
+        product_id: 可选，限定在某个制品内搜。
+        type: 可选，限定对象类型（如 DomainFactSet）。
+        page: 从 1 开始。
+        size: 1~50，默认 20。
+    """
+    ident = _identity()
+    payload: dict = {"terms": terms, "match": match, "page": page, "size": size}
+    if product_id:
+        payload["product_id"] = product_id
+    if type:
+        payload["type"] = type
+    return backend.product_search(payload, _domain(ident, None))
+
+
+@mcp.tool()
+def get_product(ref: str | None = None, ids: list[str] | None = None) -> dict:
+    """读已发布知识制品——按你手上有什么分流：
+
+    - **都不传**：返回本知识域的已发布制品目录（名称、用途、负责人、对象数）。
+      不知道有哪些制品时从这里开始。
+    - **ref = 制品 ID**（不含 `@` 的 slug）：返回该制品的对象清单。
+    - **ids = 对象 ID 列表**（形如 `制品@类型@标识` 或 `类型@标识`）：批量取完整
+      md 正文。**这是权威原文的唯一来源**——搜索摘要不能替代它。
+
+    取回的 md 里，frontmatter 的 fields 带每个值的出处（document_id /
+    snapshot_id / segment_id），可以据此回原文核对；`## 边` 段和正文里的
+    `[[ID]]` 是下钻入口，响应的 references 已经替你抽好，直接拿去下一轮 ids。
+
+    一次最多取 50 个对象，响应上限 2MB——超了整单失败并提示分批。单个 ID 不存在
+    不影响同批其余 ID（该条目 ok=false）。
+
+    只读**已发布**内容：还在草稿里的制品对你不可见。
+
+    Args:
+        ref: 制品 ID（不含 @）。与 ids 二选一。
+        ids: 对象逻辑 ID 列表，1~50 个。
+    """
+    ident = _identity()
+    domain = _domain(ident, None)
+    if ids:
+        return backend.product_fetch(ids, domain)
+    if ref:
+        if "@" in ref:
+            # 对象 ID 误传给 ref：直接按批量取处理，不让 Agent 多跑一轮
+            return backend.product_fetch([ref], domain)
+        return backend.product_outline(ref, domain)
+    return backend.product_catalog(domain)
 
 
 __all__ = ["mcp", "__version__"]

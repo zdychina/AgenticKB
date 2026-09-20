@@ -249,9 +249,16 @@ async def put_upload_direct(ticket: str, stream) -> tuple[int, dict]:
 # 所以这里不传 username/kb_ids/domain——传了也不会被采信。
 
 
-def _post_creation(path: str, payload: dict, *, domain: str) -> dict:
-    """POST /api/creation/*。403 是票据被拒，要把原因码原样交给 Agent——
-    走 ``_post`` 会被翻译成「需要库的编辑权限」，那对票据场景是错的消息。"""
+def _post_product(
+    path: str, payload: dict, *, domain: str, ticketed: bool = False,
+) -> dict:
+    """POST 制品面的 internal-only 端点（制作 ``/api/creation/*`` 与消费
+    ``/api/product-consume/*``）。
+
+    单独一条通道而不是走 ``_post``：后者把 403 翻成「需要库的编辑权限」，那对
+    票据场景是错的消息。``ticketed`` 区分两种措辞——消费面没有票据，说「票据被拒」
+    会把 Agent 引到错的方向。
+    """
     secret = _internal_auth_secret()
     if not secret:
         raise ToolBackendError("服务端未完成内部鉴权配置，请联系管理员。")
@@ -267,20 +274,25 @@ def _post_creation(path: str, payload: dict, *, domain: str) -> dict:
             trust_env=False,
         )
     except httpx.HTTPError as exc:
-        logger.warning("creation %s unreachable: %s", path, exc)
+        logger.warning("product endpoint %s unreachable: %s", path, exc)
         raise ToolBackendError("知识服务暂不可用，请稍后重试。") from None
 
-    if resp.status_code == 403:
-        detail = {}
+    fallback = "任务票据被拒绝" if ticketed else "无权访问该制品"
+    if resp.status_code in (403, 404, 413, 422):
+        detail: dict = {}
         try:
-            detail = resp.json().get("detail") or {}
+            body = resp.json().get("detail")
+            detail = body if isinstance(body, dict) else {}
         except ValueError:
             detail = {}
-        if isinstance(detail, dict) and detail.get("code"):
-            raise ToolBackendError(f"[{detail['code']}] {detail.get('message') or '任务票据被拒绝'}")
-        raise ToolBackendError("任务票据被拒绝。")
-    if resp.status_code == 404:
-        raise ToolBackendError("票据绑定的制品或制作实例不存在。")
+        if detail.get("code"):
+            raise ToolBackendError(f"[{detail['code']}] {detail.get('message') or fallback}")
+        if resp.status_code == 404:
+            raise ToolBackendError(
+                "票据绑定的制品或制作实例不存在。" if ticketed
+                else "该制品不存在，或它还没有已发布内容。"
+            )
+        raise ToolBackendError(f"{fallback}（HTTP {resp.status_code}）。")
     if resp.status_code != 200:
         detail = ""
         try:
@@ -293,8 +305,9 @@ def _post_creation(path: str, payload: dict, *, domain: str) -> dict:
 
 def get_creation_context(task_ticket: str, domain: str) -> dict:
     """票据 → 本次制作的工作定义与可读材料清单。"""
-    return _post_creation(
-        "/api/creation/context", {"task_ticket": task_ticket}, domain=domain,
+    return _post_product(
+        "/api/creation/context", {"task_ticket": task_ticket},
+        domain=domain, ticketed=True,
     )
 
 
@@ -319,4 +332,49 @@ def submit_creation_result(
     }
     if product_id:
         payload["product_id"] = product_id
-    return _post_creation("/api/creation/submit", payload, domain=domain)
+    return _post_product("/api/creation/submit", payload, domain=domain, ticketed=True)
+
+
+# ── 制品消费工具族（52号 P6）──────────────────────────────────────────────
+# 后端在 mining 的 /api/product-consume/*（internal-only，路由内自验）。
+# 只读**已发布**制品；草稿是负责人的在制品，对消费方不可见。
+# 制品落按域路由的库，所以每条都带钥匙绑定的单域。
+
+
+def product_catalog(domain: str) -> dict:
+    """已发布制品目录——不知道任何 ID 时的入口。"""
+    return _post_product("/api/product-consume/catalog", {}, domain=domain)
+
+
+def product_outline(product_id: str, domain: str) -> dict:
+    """一个制品的对象清单。比目录深一层，比全量取正文轻得多。"""
+    secret = _internal_auth_secret()
+    if not secret:
+        raise ToolBackendError("服务端未完成内部鉴权配置，请联系管理员。")
+    try:
+        resp = httpx.post(
+            f"{MINING_URL}/api/product-consume/outline",
+            json={},
+            params={"domain": domain, "product_id": product_id},
+            headers={"X-Internal-Auth": secret},
+            timeout=TOOLS_TIMEOUT,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("product outline unreachable: %s", exc)
+        raise ToolBackendError("知识服务暂不可用，请稍后重试。") from None
+    if resp.status_code == 404:
+        raise ToolBackendError(f"制品 {product_id!r} 没有已发布内容。")
+    if resp.status_code != 200:
+        raise ToolBackendError(f"操作失败（HTTP {resp.status_code}）。")
+    return resp.json()
+
+
+def product_fetch(ids: list[str], domain: str) -> dict:
+    """批量取对象 md——权威原文的唯一来源。"""
+    return _post_product("/api/product-consume/fetch", {"ids": ids}, domain=domain)
+
+
+def product_search(payload: dict, domain: str) -> dict:
+    """按关键词定位候选。返回的 snippet 不是权威依据。"""
+    return _post_product("/api/product-consume/search", payload, domain=domain)

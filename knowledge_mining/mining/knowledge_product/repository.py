@@ -327,6 +327,67 @@ class KnowledgeProductRepository:
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
 
+    # ---------------------------------------------------------------- 已发布面
+    # 消费只认发布修订：JOIN 到 kp_products.released_revision 就是「对外服务的那一份」。
+    # 草稿失败或新版未发布时，旧的可用版本继续服务（48号 §七）。
+
+    _PUBLISHED_JOIN = """
+        FROM kp_objects o
+        JOIN kp_products p
+          ON p.id = o.product_id AND p.released_revision = o.revision_no
+    """
+
+    async def list_published_products(self) -> list[dict[str, Any]]:
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """SELECT p.*, (
+                           SELECT count(*) FROM kp_objects o
+                           WHERE o.product_id = p.id AND o.revision_no = p.released_revision
+                       ) AS object_count
+                       FROM kp_products p
+                       WHERE p.released_revision IS NOT NULL
+                       ORDER BY p.updated_at DESC""",
+                )
+                rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def get_published_objects(self, object_ids: Sequence[str]) -> list[dict[str, Any]]:
+        """按对象 ID 批量取已发布行。跨制品共享对象可能命中多个制品，全部返回。"""
+        if not object_ids:
+            return []
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    "SELECT o.*, p.name AS product_name" + self._PUBLISHED_JOIN
+                    + " WHERE o.object_id = ANY(%s) ORDER BY o.object_id, o.product_id",
+                    (list(object_ids),),
+                )
+                rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def list_published_objects(
+        self, *, product_id: str | None = None, type_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT o.*, p.name AS product_name" + self._PUBLISHED_JOIN
+        clauses: list[str] = []
+        params: list[Any] = []
+        if product_id:
+            clauses.append("o.product_id = %s")
+            params.append(product_id)
+        if type_name:
+            clauses.append("o.type = %s")
+            params.append(type_name)
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY o.product_id, o.layer, o.object_id"
+
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql, tuple(params))
+                rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
     # ---------------------------------------------------------------- 人审与试用
 
     async def set_review_status(

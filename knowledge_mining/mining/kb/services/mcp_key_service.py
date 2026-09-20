@@ -76,6 +76,9 @@ MCP_TOOL_NAMES = frozenset({
     "search_knowledge",
     "get_knowledge",
     "upload_document",
+    # 52号 P6 制品消费（默认开放，见 mcp_server/identity.py）
+    "search_products",
+    "get_product",
 }) | MCP_CREATION_TOOL_NAMES
 
 #: 工具族合并改名映射（2026-08-31 两轮 9→7→3）：旧名 → 新名。任一旧源开启

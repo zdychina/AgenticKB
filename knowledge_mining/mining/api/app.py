@@ -41,6 +41,10 @@ from knowledge_mining.mining.agent_creation.routes import (
     admin_router as creation_admin_router,
     tool_router as creation_tool_router,
 )
+from knowledge_mining.mining.knowledge_product.consume_routes import (
+    router as published_product_router,
+    tool_router as product_consume_tool_router,
+)
 from knowledge_mining.mining.onenet.routes import (
     refs_router as onenet_refs_router,
     router as onenet_router,
@@ -300,6 +304,10 @@ def create_app() -> FastAPI:
     # tool_router 的两条在 auth_guard 的 service-only 豁免名单里，路由内自验内部密钥。
     app.include_router(creation_admin_router)
     app.include_router(creation_tool_router)
+    # 52号 P6：消费面（只读已发布）。独立前缀——挂在 /api/knowledge-products/published
+    # 下会被 /{product_id} 那条动态路由抢先匹配。
+    app.include_router(published_product_router)
+    app.include_router(product_consume_tool_router)
 
     # Allow cross-origin requests from the dev server and any local UI.
     from knowledge_mining.mining.api.auth_guard import MiningApiAuthMiddleware

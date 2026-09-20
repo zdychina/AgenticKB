@@ -73,6 +73,11 @@ TOOL_NAMES = frozenset({
     "search_knowledge",
     "get_knowledge",
     "upload_document",
+    # 52号 P6 制品消费：**默认开放**。它们只读、按钥匙绑定域收窄，而 P6 的全部
+    # 意义就是让已发布制品被用起来——做成需显式开启等于默认没人能消费。
+    # 代价：每把存量钥匙的工具清单多两个；域内没有已发布制品时它们返回空目录。
+    "search_products",
+    "get_product",
 })
 
 #: 制作工具（52号 P2/P3）。**不进默认开放集**——``open_tools is None`` 等于「全开」，

@@ -28,6 +28,11 @@ _SERVICE_ONLY_ROUTES = frozenset({
     # 调用方的可读范围由 body 里的 task_ticket 决定，不由服务身份决定）。
     ("POST", "/api/creation/context"),
     ("POST", "/api/creation/submit"),
+    # 52号 P6：制品消费工具的后端（同样 internal-only，路由内自验）。
+    ("POST", "/api/product-consume/catalog"),
+    ("POST", "/api/product-consume/outline"),
+    ("POST", "/api/product-consume/fetch"),
+    ("POST", "/api/product-consume/search"),
 })
 
 #: 直传 PUT 是动态票据路径（内部密钥 + 票据 + 用户绑定三重校验在路由内）。
