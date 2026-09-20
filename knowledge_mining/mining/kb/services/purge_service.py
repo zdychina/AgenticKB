@@ -24,6 +24,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from psycopg.errors import UndefinedTable
+
 logger = logging.getLogger(__name__)
 
 #: v2 投影族（无 FK，必须按 snapshot_id 手动删；final + staging 孪生）。
@@ -533,6 +535,19 @@ class PurgeService:
         """物理回收废弃满 N 天的快照（7 天缓冲 = 切回范式不必重挖）.
 
         links/build 选片行是引用记录——快照已决定回收，引用随之销账。
+
+        两道「还在用」守卫，命中即跳过：
+        - **serving**：正在服务的知识，跳过并复活 READY；
+        - **已发布制品的证据**（52号 R6）：``kp_evidence.snapshot_id`` 是
+          ``ON DELETE RESTRICT``——已发布制品的逐字段可回源优先于快照回收。
+          不加这道守卫就不是「这一个快照删不掉」，而是 FK 异常穿出本循环、
+          **整轮 GC 死掉**：后面的快照全不处理，孤儿对象也不回收，
+          且次日重来照样死在同一个快照上（真库实测，见 52号 R6）。
+
+        与 serving 的差别：**命中制品引用不复活 READY**。快照作为源文档版本
+        确实已废弃，只是被制品钉住了；保持 DEPRECATED 才能让制品侧的资料告警
+        继续对负责人说「你引用着已废弃的资料」。制品更新或下架、证据行消失后，
+        下一轮自然就能回收。
         """
         cutoff = (
             datetime.now(timezone.utc) - timedelta(days=older_than_days)
@@ -544,11 +559,16 @@ class PurgeService:
                    WHERE lifecycle_status = 'DEPRECATED' AND deprecated_at < %s""",
                 [cutoff])
             stale = [dict(r) for r in await cur.fetchall()]
+        cited = await self._snapshots_cited_by_products([r["id"] for r in stale])
         ir_objects = set()
         reclaimed = 0
         skipped_serving = 0
+        skipped_cited = 0
         for row in stale:
             sid = row["id"]
+            if sid in cited:
+                skipped_cited += 1
+                continue
             # 满期复核（审查 HIGH-2）：标记后可能又成为 serving（长 Run 补验、
             # 切回范式复活失败路径等）——serving 命中即跳过并复活 READY，
             # 绝不删正在服务的知识。注意**不做**「活文档 link」检查：links 是
@@ -582,10 +602,36 @@ class PurgeService:
                 ir_objects.add(row["parse_ir_storage_object_id"])
             reclaimed += 1
         objects = await self._reclaim_objects_if_orphaned(ir_objects)
-        logger.info("[gc] reclaimed %s deprecated snapshots (%s objects)",
-                    reclaimed, objects["reclaimed_objects"])
+        logger.info(
+            "[gc] reclaimed %s deprecated snapshots (%s objects); "
+            "skipped %s serving / %s cited by published products",
+            reclaimed, objects["reclaimed_objects"], skipped_serving, skipped_cited)
         return {"reclaimed": reclaimed, "skipped_serving": skipped_serving,
+                "skipped_cited": skipped_cited,
                 "reclaimed_objects": objects["reclaimed_objects"]}
+
+    async def _snapshots_cited_by_products(self, snapshot_ids: list[str]) -> set:
+        """这批快照里，哪些被**已发布**制品的证据引用（52号 R6）。
+
+        只看已发布修订：草稿引用的快照没有对外承诺，不该钉住回收。
+        ``kp_evidence`` 是 52号 的表——老库可能还没建，缺表按「没有引用」处理，
+        让 GC 照常跑，而不是因为一张不存在的表整轮报错。
+        """
+        if not snapshot_ids:
+            return set()
+        try:
+            async with self._conn() as conn:
+                cur = await conn.execute(
+                    """SELECT DISTINCT e.snapshot_id
+                       FROM kp_evidence e
+                       JOIN kp_products p
+                         ON p.id = e.product_id AND p.released_revision = e.revision_no
+                       WHERE e.snapshot_id = ANY(%s)""",
+                    [snapshot_ids])
+                return {r["snapshot_id"] for r in await cur.fetchall()}
+        except UndefinedTable:
+            logger.debug("[gc] kp_evidence 不存在，跳过制品引用守卫")
+            return set()
 
     # ------------------------------------------------------------ misc
 
