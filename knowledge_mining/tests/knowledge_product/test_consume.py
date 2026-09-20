@@ -284,3 +284,51 @@ async def test_bad_paging_arguments_are_rejected(consume_service, published) -> 
         await consume_service.search(["x"], size=consume.MAX_PAGE_SIZE + 1)
     with pytest.raises(ConsumeRejected):
         await consume_service.search(["x"], match="maybe")
+
+
+# ----------------------------------------------------------------- 资料状态（P7）
+
+
+@pytest_asyncio.fixture
+async def with_sources(repo, published):
+    for snapshot in ("snap_0007", "snap_0011", "snap_0003"):
+        repo.set_snapshot_state(snapshot)
+    return published
+
+
+@pytest.mark.asyncio
+async def test_outline_reports_healthy_sources(consume_service, repo, with_sources) -> None:
+    status = (await consume_service.outline(PRODUCT_ID))["source_status"]
+    assert status["state"] == "ok"
+    assert status["alerts"] == []
+
+
+@pytest.mark.asyncio
+async def test_outline_warns_when_a_source_was_updated(
+    consume_service, repo, with_sources
+) -> None:
+    repo.mark_document_updated("doc_ne8000_power_guide")
+    status = (await consume_service.outline(PRODUCT_ID))["source_status"]
+    assert status["state"] == "stale"
+    assert "过时" in status["detail"]
+
+
+@pytest.mark.asyncio
+async def test_outline_blocks_when_a_source_was_revoked(
+    consume_service, repo, with_sources
+) -> None:
+    """48号 §八：资料失效时不能只挂待办继续暴露——消费方要看得见。"""
+    repo.set_snapshot_state("snap_0007", lifecycle_status="REVOKED")
+    status = (await consume_service.outline(PRODUCT_ID))["source_status"]
+    assert status["state"] == "blocked"
+    assert "请勿据此作出判断" in status["detail"]
+    assert any(a["blocking"] for a in status["alerts"])
+
+
+@pytest.mark.asyncio
+async def test_unknown_snapshot_state_is_not_reported_as_healthy(
+    consume_service, published
+) -> None:
+    """查不到快照现状就如实说，不要假装健康——这里快照压根没登记过。"""
+    status = (await consume_service.outline(PRODUCT_ID))["source_status"]
+    assert status["state"] == "blocked"

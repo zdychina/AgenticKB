@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from knowledge_mining.mining.knowledge_product import consume
+from knowledge_mining.mining.knowledge_product import consume, impact
 from knowledge_mining.mining.knowledge_product.content_store import ArtifactContentStore
 from knowledge_mining.mining.knowledge_product.consume import (
     ConsumeRejected,
@@ -43,17 +43,24 @@ class ProductConsumeService:
         ]
 
     async def outline(self, product_id: str) -> dict[str, Any]:
-        """一个制品的对象清单——比 catalog 深一层，比全量取正文轻得多。"""
+        """一个制品的对象清单——比 catalog 深一层，比全量取正文轻得多。
+
+        带上 ``source_status``：48号 §八 要求资料失效时「不能只挂待办继续暴露」。
+        只让负责人看见告警就还是挂待办，所以消费方在决定依赖这个制品之前就该看到
+        它引用的资料现在是什么状态。
+        """
         rows = await self._repo.list_published_objects(product_id=product_id)
         if not rows:
             raise ConsumeRejected(
                 consume.OBJECT_NOT_FOUND,
                 f"制品 {product_id!r} 没有已发布内容（可能还在草稿）",
             )
+        revision = rows[0].get("revision_no")
         return {
             "product_id": product_id,
             "product_name": rows[0].get("product_name") or product_id,
-            "revision": rows[0].get("revision_no"),
+            "revision": revision,
+            "source_status": await self._source_status(product_id, revision),
             "objects": [
                 {
                     "id": row["object_id"],
@@ -62,6 +69,45 @@ class ProductConsumeService:
                     "name": row.get("name"),
                 }
                 for row in rows
+            ],
+        }
+
+    async def _source_status(
+        self, product_id: str, revision_no: int | None,
+    ) -> dict[str, Any]:
+        """这一版引用的资料现状。查不动就如实说「未知」，不要假装健康。"""
+        if revision_no is None:
+            return {"state": "unknown", "detail": "无法确定该制品的发布修订"}
+
+        evidence = await self._repo.evidence_of_revision(product_id, int(revision_no))
+        if not evidence:
+            return {"state": "ok", "alerts": []}
+
+        states, newer = await self._repo.snapshot_states(
+            [row["snapshot_id"] for row in evidence]
+        )
+        alerts = impact.build_alerts(evidence, states, newer)
+        if not alerts:
+            return {"state": "ok", "alerts": []}
+
+        blocking = [a for a in alerts if a.blocking]
+        return {
+            # blocked = 引用的资料已失效或被收回，这份内容不应再被当作依据
+            "state": "blocked" if blocking else "stale",
+            "detail": (
+                "该制品引用的部分资料已失效或被收回，请勿据此作出判断"
+                if blocking else
+                "该制品引用的部分资料已更新或标记废弃，结论可能已过时"
+            ),
+            "alerts": [
+                {
+                    "kind": a.kind,
+                    "blocking": a.blocking,
+                    "document_id": a.document_id,
+                    "detail": a.detail,
+                    "affected_count": len(a.fields),
+                }
+                for a in alerts
             ],
         }
 

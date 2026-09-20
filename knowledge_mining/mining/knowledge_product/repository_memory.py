@@ -34,6 +34,10 @@ class MemoryKnowledgeProductRepository:
         self._reviews: list[dict[str, Any]] = []
         self._trials: list[dict[str, Any]] = []
         self._edits: list[dict[str, Any]] = []
+        self._issues: list[dict[str, Any]] = []
+        # 影响分析的外部事实（PG 侧来自 asset_document_snapshots）
+        self._snapshots: dict[str, dict[str, Any]] = {}
+        self._updated_documents: set[str] = set()
 
     # ---------------------------------------------------------------- 制品
 
@@ -141,9 +145,9 @@ class MemoryKnowledgeProductRepository:
             raise ValueError(f"制品不存在: {product_id!r}")
         existing = [key[1] for key in self._revisions if key[0] == product_id]
         revision_no = (max(existing) if existing else 0) + 1
+        # 同 PG：取当前最新定义，不是既有修订里的最大值
         definition_revision = max(
-            (r["definition_revision"] for key, r in self._revisions.items() if key[0] == product_id),
-            default=1,
+            (key[1] for key in self._definitions if key[0] == product_id), default=1,
         )
 
         now = _utcnow()
@@ -236,6 +240,144 @@ class MemoryKnowledgeProductRepository:
             for ref in self._evidence.get((product_id, revision_no), [])
             if object_id is None or ref.object_id == object_id
         ]
+
+    # ---------------------------------------------------------------- 定义修订
+
+    async def next_definition_revision(self, product_id: str) -> int:
+        existing = [k[1] for k in self._definitions if k[0] == product_id]
+        return (max(existing) if existing else 0) + 1
+
+    async def add_definition(
+        self,
+        *,
+        product_id: str,
+        definition_revision: int,
+        fields: dict[str, Any],
+        object_rules: dict[str, Any],
+        examples: list[Any],
+        trial_questions: list[Any],
+        scope_items: Sequence[ScopeItem],
+        created_by: str,
+    ) -> dict[str, Any]:
+        now = _utcnow()
+        definition = {
+            "id": f"kpd_{uuid.uuid4().hex}",
+            "product_id": product_id,
+            "definition_revision": definition_revision,
+            "fields_json": fields,
+            "object_rules_json": object_rules,
+            "examples_json": examples,
+            "trial_questions_json": trial_questions,
+            "created_at": now,
+            "created_by": created_by,
+        }
+        self._definitions[(product_id, definition_revision)] = definition
+        self._scope[(product_id, definition_revision)] = list(scope_items)
+        if product_id in self._products:
+            self._products[product_id]["updated_at"] = now
+        return dict(definition)
+
+    # ---------------------------------------------------------------- 报告问题
+
+    async def record_issue(
+        self,
+        *,
+        product_id: str,
+        used_revision: int | None,
+        object_id: str | None,
+        field_name: str | None,
+        task: str | None,
+        problem: str,
+        correction_basis: str | None,
+        reporter: str,
+    ) -> dict[str, Any]:
+        now = _utcnow()
+        row = {
+            "id": f"kpis_{uuid.uuid4().hex}",
+            "product_id": product_id,
+            "used_revision": used_revision,
+            "object_id": object_id,
+            "field_name": field_name,
+            "task": task,
+            "problem": problem,
+            "correction_basis": correction_basis,
+            "reporter": reporter,
+            "status": "open",
+            "resolution_kind": None,
+            "resolution_note": None,
+            "resolved_by": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        self._issues.append(row)
+        return dict(row)
+
+    async def list_issues(
+        self, product_id: str, status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return [
+            dict(r) for r in reversed(self._issues)
+            if r["product_id"] == product_id and (status is None or r["status"] == status)
+        ]
+
+    async def resolve_issue(
+        self,
+        *,
+        issue_id: str,
+        status: str,
+        resolution_kind: str | None,
+        resolution_note: str | None,
+        resolved_by: str,
+    ) -> dict[str, Any] | None:
+        for row in self._issues:
+            if row["id"] == issue_id:
+                row.update(
+                    status=status, resolution_kind=resolution_kind,
+                    resolution_note=resolution_note, resolved_by=resolved_by,
+                    updated_at=_utcnow(),
+                )
+                return dict(row)
+        return None
+
+    # ---------------------------------------------------------------- 影响分析
+
+    async def evidence_of_revision(
+        self, product_id: str, revision_no: int,
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "product_id": product_id,
+                "revision_no": revision_no,
+                "object_id": ref.object_id,
+                "field_name": ref.field_name,
+                "document_id": ref.document_id,
+                "snapshot_id": ref.snapshot_id,
+            }
+            for ref in self._evidence.get((product_id, revision_no), [])
+        ]
+
+    async def snapshot_states(
+        self, snapshot_ids: Sequence[str],
+    ) -> tuple[dict[str, dict[str, Any]], set[str]]:
+        """内存实现由测试用 ``set_snapshot_state`` / ``mark_document_updated`` 布置。"""
+        ids = list(dict.fromkeys(snapshot_ids))
+        return (
+            {sid: dict(self._snapshots[sid]) for sid in ids if sid in self._snapshots},
+            set(self._updated_documents),
+        )
+
+    def set_snapshot_state(
+        self, snapshot_id: str, lifecycle_status: str = "READY",
+    ) -> None:
+        self._snapshots[snapshot_id] = {
+            "id": snapshot_id,
+            "lifecycle_status": lifecycle_status,
+            "deprecated_at": None,
+            "created_at": _utcnow(),
+        }
+
+    def mark_document_updated(self, document_id: str) -> None:
+        self._updated_documents.add(document_id)
 
     # ---------------------------------------------------------------- 已发布面
 

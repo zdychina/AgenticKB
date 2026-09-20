@@ -67,6 +67,7 @@ EXPORT_TABLES = [
     "kp_reviews",
     "kp_object_edits",
     "kp_trials",
+    "kp_issues",
     # operator（检索范式）——见 OPTIONAL_TABLES
     "operator_paradigm",
     "operator_paradigm_version",

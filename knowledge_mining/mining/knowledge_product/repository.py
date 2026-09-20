@@ -197,10 +197,17 @@ class KnowledgeProductRepository:
         now = _utcnow()
         async with self._pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
+                # 定义修订取**当前最新的定义**，不是既有修订里的最大值——
+                # 负责人改完定义（新开一版）之后，下一个草稿必须按新定义走，
+                # 否则「改了定义」这件事对制作没有任何效果。
                 await cur.execute(
-                    """SELECT COALESCE(MAX(revision_no), 0) AS max_no, MAX(definition_revision) AS def_no
-                       FROM kp_revisions WHERE product_id = %s""",
-                    (product_id,),
+                    """SELECT
+                           COALESCE((SELECT MAX(revision_no) FROM kp_revisions
+                                     WHERE product_id = %s), 0) AS max_no,
+                           COALESCE((SELECT MAX(definition_revision)
+                                     FROM kp_product_definitions
+                                     WHERE product_id = %s), 1) AS def_no""",
+                    (product_id, product_id),
                 )
                 head = await cur.fetchone()
                 revision_no = int(head["max_no"]) + 1
@@ -326,6 +333,198 @@ class KnowledgeProductRepository:
                 await cur.execute(sql, tuple(params))
                 rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+    # ---------------------------------------------------------------- 定义修订
+
+    async def next_definition_revision(self, product_id: str) -> int:
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """SELECT COALESCE(MAX(definition_revision), 0) + 1 AS next
+                       FROM kp_product_definitions WHERE product_id = %s""",
+                    (product_id,),
+                )
+                row = await cur.fetchone()
+        return int(row["next"])
+
+    async def add_definition(
+        self,
+        *,
+        product_id: str,
+        definition_revision: int,
+        fields: dict[str, Any],
+        object_rules: dict[str, Any],
+        examples: list[Any],
+        trial_questions: list[Any],
+        scope_items: Sequence[ScopeItem],
+        created_by: str,
+    ) -> dict[str, Any]:
+        """开一版新定义 + 它的资料范围，单事务。
+
+        旧定义原样留着——已发布修订仍指向它，删了就没法解释「那一版当时是按什么
+        规则做的」。
+        """
+        now = _utcnow()
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """INSERT INTO kp_product_definitions
+                       (id, product_id, definition_revision, fields_json, object_rules_json,
+                        examples_json, trial_questions_json, created_at, created_by)
+                       VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s)
+                       RETURNING *""",
+                    (
+                        _new_id("kpd"), product_id, definition_revision, _json(fields),
+                        _json(object_rules), _json(examples), _json(trial_questions),
+                        now, created_by,
+                    ),
+                )
+                definition = await cur.fetchone()
+
+                for item in scope_items:
+                    await cur.execute(
+                        """INSERT INTO kp_scope_items
+                           (id, product_id, definition_revision, document_id, snapshot_id,
+                            allowed_sections_json, created_at)
+                           VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)""",
+                        (
+                            _new_id("kps"), product_id, definition_revision,
+                            item.document_id, item.snapshot_id,
+                            json.dumps(item.allowed_sections) if item.allowed_sections else None,
+                            now,
+                        ),
+                    )
+
+                await cur.execute(
+                    "UPDATE kp_products SET updated_at = %s WHERE id = %s",
+                    (now, product_id),
+                )
+        return dict(definition)
+
+    # ---------------------------------------------------------------- 报告问题
+
+    async def record_issue(
+        self,
+        *,
+        product_id: str,
+        used_revision: int | None,
+        object_id: str | None,
+        field_name: str | None,
+        task: str | None,
+        problem: str,
+        correction_basis: str | None,
+        reporter: str,
+    ) -> dict[str, Any]:
+        now = _utcnow()
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """INSERT INTO kp_issues
+                       (id, product_id, used_revision, object_id, field_name, task,
+                        problem, correction_basis, reporter, status, created_at, updated_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s, %s)
+                       RETURNING *""",
+                    (
+                        _new_id("kpis"), product_id, used_revision, object_id, field_name,
+                        task, problem, correction_basis, reporter, now, now,
+                    ),
+                )
+                row = await cur.fetchone()
+        return dict(row)
+
+    async def list_issues(
+        self, product_id: str, status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM kp_issues WHERE product_id = %s"
+        params: list[Any] = [product_id]
+        if status:
+            sql += " AND status = %s"
+            params.append(status)
+        sql += " ORDER BY created_at DESC"
+
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql, tuple(params))
+                rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def resolve_issue(
+        self,
+        *,
+        issue_id: str,
+        status: str,
+        resolution_kind: str | None,
+        resolution_note: str | None,
+        resolved_by: str,
+    ) -> dict[str, Any] | None:
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """UPDATE kp_issues
+                       SET status = %s, resolution_kind = %s, resolution_note = %s,
+                           resolved_by = %s, updated_at = %s
+                       WHERE id = %s RETURNING *""",
+                    (
+                        status, resolution_kind, resolution_note, resolved_by,
+                        _utcnow(), issue_id,
+                    ),
+                )
+                row = await cur.fetchone()
+        return dict(row) if row else None
+
+    # ---------------------------------------------------------------- 影响分析
+
+    async def evidence_of_revision(
+        self, product_id: str, revision_no: int,
+    ) -> list[dict[str, Any]]:
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """SELECT product_id, revision_no, object_id, field_name,
+                              document_id, snapshot_id
+                       FROM kp_evidence
+                       WHERE product_id = %s AND revision_no = %s""",
+                    (product_id, revision_no),
+                )
+                rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+    async def snapshot_states(
+        self, snapshot_ids: Sequence[str],
+    ) -> tuple[dict[str, dict[str, Any]], set[str]]:
+        """→ ``(快照现状, 存在更新快照的 document_id 集合)``。
+
+        「更新」的判据是同一文档下有 ``created_at`` 更晚的快照——文档到快照的归属
+        在 ``asset_document_snapshot_links`` 里，快照表自己不带 document_id。
+        """
+        ids = list(dict.fromkeys(snapshot_ids))
+        if not ids:
+            return {}, set()
+
+        async with self._pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """SELECT id, lifecycle_status, deprecated_at, created_at
+                       FROM asset_document_snapshots WHERE id = ANY(%s)""",
+                    (ids,),
+                )
+                states = {r["id"]: dict(r) for r in await cur.fetchall()}
+
+                await cur.execute(
+                    """SELECT DISTINCT older.document_id
+                       FROM asset_document_snapshot_links older
+                       JOIN asset_document_snapshots os
+                         ON os.id = older.document_snapshot_id
+                       JOIN asset_document_snapshot_links newer
+                         ON newer.document_id = older.document_id
+                       JOIN asset_document_snapshots ns
+                         ON ns.id = newer.document_snapshot_id
+                       WHERE older.document_snapshot_id = ANY(%s)
+                         AND ns.created_at > os.created_at""",
+                    (ids,),
+                )
+                newer = {r["document_id"] for r in await cur.fetchall()}
+        return states, newer
 
     # ---------------------------------------------------------------- 已发布面
     # 消费只认发布修订：JOIN 到 kp_products.released_revision 就是「对外服务的那一份」。

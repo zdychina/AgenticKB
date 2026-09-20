@@ -148,6 +148,11 @@ _KNOWLEDGE_PRODUCT_REVIEW_DDL = (
     _REPO_ROOT / "databases" / "asset_core" / "schemas"
     / "020_knowledge_product_review.sql"
 )
+# 52号 P7：制品运营（报告问题）。依赖 018 的 kp_products。
+_KNOWLEDGE_PRODUCT_OPS_DDL = (
+    _REPO_ROOT / "databases" / "asset_core" / "schemas"
+    / "021_knowledge_product_ops.sql"
+)
 # KB 硬删任务化（013）：status 加 deleting + kb_purge_tasks 进度表。
 _KB_PURGE_TASKS_DDL = (
     _REPO_ROOT / "databases" / "kb" / "schemas" / "013_kb_purge_tasks.sql"
@@ -264,6 +269,8 @@ def domain_schema_paths() -> tuple[Path, ...]:
         _KNOWLEDGE_PRODUCT_CREATION_DDL,
         # 52号 P4：人审/试用/发布（依赖 018）。
         _KNOWLEDGE_PRODUCT_REVIEW_DDL,
+        # 52号 P7：制品运营（依赖 018）。
+        _KNOWLEDGE_PRODUCT_OPS_DDL,
     )
 
 

@@ -13,7 +13,7 @@ from knowledge_mining.mining.knowledge_product.diff import RevisionDiff, diff_ob
 from knowledge_mining.mining.knowledge_product.evidence import extract_batch
 from knowledge_mining.mining.knowledge_product.loader import build_object
 from knowledge_mining.mining.knowledge_product.models import ProductObject
-from knowledge_mining.mining.knowledge_product import review
+from knowledge_mining.mining.knowledge_product import impact, review
 from knowledge_mining.mining.knowledge_product.registry import Registry
 from knowledge_mining.mining.knowledge_product.repository import (
     KnowledgeProductRepository,
@@ -230,6 +230,158 @@ class KnowledgeProductService:
     async def list_backlinks(self, object_id: str) -> list[dict[str, Any]]:
         """谁引用了这个对象。反向边不写回 md，只能从索引反查（F5）。"""
         return await self._repo.list_backlinks(object_id)
+
+    # ---------------------------------------------------------------- 定义修订
+
+    async def update_definition(
+        self,
+        product_id: str,
+        *,
+        editor: str,
+        fields: dict[str, Any] | None = None,
+        object_rules: dict[str, Any] | None = None,
+        examples: list[Any] | None = None,
+        trial_questions: list[Any] | None = None,
+        scope_items: Sequence[ScopeItem] | None = None,
+    ) -> dict[str, Any]:
+        """改制品定义 = **开新的一版**，不是原地改。
+
+        旧定义留着：已发布修订指向它，删了就没法解释「那一版当时按什么规则做的」。
+        未给的部分从当前定义继承——改字段定义不该顺手把资料范围清空。
+
+        调用方**必须**在此之后撤销该制品的在用票据：Agent 手里的旧票据绑定的是旧
+        定义修订，按旧范围继续提交就等于绕过了这次改动（50号 §7.1）。撤票不在这里
+        做——票据属于 ``agent_creation``，载体层不该反过来依赖制作面。
+        """
+        await self.get_product(product_id)
+        current = await self._latest_definition(product_id) or {}
+        next_revision = await self._repo.next_definition_revision(product_id)
+
+        if scope_items is None:
+            existing = await self._repo.list_scope_items(
+                product_id, int(current.get("definition_revision") or 1)
+            )
+            scope_items = [
+                ScopeItem(
+                    document_id=item["document_id"],
+                    snapshot_id=item["snapshot_id"],
+                    allowed_sections=item.get("allowed_sections_json"),
+                )
+                for item in existing
+            ]
+
+        return await self._repo.add_definition(
+            product_id=product_id,
+            definition_revision=next_revision,
+            fields=fields if fields is not None else (current.get("fields_json") or {}),
+            object_rules=(
+                object_rules if object_rules is not None
+                else (current.get("object_rules_json") or {})
+            ),
+            examples=(
+                examples if examples is not None else (current.get("examples_json") or [])
+            ),
+            trial_questions=(
+                trial_questions if trial_questions is not None
+                else (current.get("trial_questions_json") or [])
+            ),
+            scope_items=scope_items,
+            created_by=editor,
+        )
+
+    async def _latest_definition(self, product_id: str) -> dict[str, Any] | None:
+        revision = await self._repo.next_definition_revision(product_id) - 1
+        if revision < 1:
+            return None
+        return await self._repo.get_definition(product_id, revision)
+
+    async def current_definition(self, product_id: str) -> dict[str, Any] | None:
+        return await self._latest_definition(product_id)
+
+    # ---------------------------------------------------------------- 报告问题
+
+    async def report_issue(
+        self,
+        product_id: str,
+        *,
+        problem: str,
+        reporter: str,
+        used_revision: int | None = None,
+        object_id: str | None = None,
+        field_name: str | None = None,
+        task: str | None = None,
+        correction_basis: str | None = None,
+    ) -> dict[str, Any]:
+        """在制品上报告问题（48号 §八）。
+
+        缺省记的是**当前发布修订**——报告问题的人用的是对外那一份，不是负责人的
+        草稿；记错版本会让后面的复核对着另一份内容看。
+        """
+        product = await self.get_product(product_id)
+        if used_revision is None:
+            used_revision = product.get("released_revision") or product.get(
+                "current_draft_revision"
+            )
+        return await self._repo.record_issue(
+            product_id=product_id,
+            used_revision=int(used_revision) if used_revision is not None else None,
+            object_id=object_id,
+            field_name=field_name,
+            task=task,
+            problem=problem,
+            correction_basis=correction_basis,
+            reporter=reporter,
+        )
+
+    async def list_issues(
+        self, product_id: str, status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return await self._repo.list_issues(product_id, status)
+
+    async def resolve_issue(
+        self,
+        issue_id: str,
+        *,
+        status: str,
+        resolved_by: str,
+        resolution_kind: str | None = None,
+        resolution_note: str | None = None,
+    ) -> dict[str, Any]:
+        if status not in ("triaged", "resolved", "rejected"):
+            raise ValueError(f"非法的处置状态: {status!r}")
+        row = await self._repo.resolve_issue(
+            issue_id=issue_id, status=status, resolution_kind=resolution_kind,
+            resolution_note=resolution_note, resolved_by=resolved_by,
+        )
+        if row is None:
+            raise NotFound(issue_id)
+        return row
+
+    # ---------------------------------------------------------------- 影响分析
+
+    async def source_alerts(
+        self, product_id: str, revision_no: int | None = None,
+    ) -> list[impact.SourceAlert]:
+        """这一版引用的资料，现在有哪些变了（48号 §八）。
+
+        缺省看**发布修订**：草稿的资料变动由负责人在制作中自然会碰到，真正要提醒
+        的是「已经对外服务的那一份现在依赖着过时/失效的资料」。
+        """
+        product = await self.get_product(product_id)
+        if revision_no is None:
+            revision_no = product.get("released_revision") or product.get(
+                "current_draft_revision"
+            )
+        if revision_no is None:
+            return []
+
+        evidence = await self._repo.evidence_of_revision(product_id, int(revision_no))
+        if not evidence:
+            return []
+        states, newer = await self._repo.snapshot_states(
+            [row["snapshot_id"] for row in evidence]
+        )
+        return impact.build_alerts(evidence, states, newer)
 
     # ---------------------------------------------------------------- 人工编辑
 

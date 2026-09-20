@@ -365,3 +365,113 @@ async def test_review_needs_an_existing_revision(repo, pg_pool, product_id) -> N
             product_id=product_id, revision_no=999, reviewer="tester",
             decision="approved", notes=None, per_object={},
         )
+
+
+# ---------------------------------------------------------------------------
+# P7：定义修订 / 报告问题 / 影响分析（021）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_new_definition_revision_round_trip(repo, product_id) -> None:
+    from knowledge_mining.mining.knowledge_product.repository import ScopeItem
+
+    assert await repo.next_definition_revision(product_id) == 2
+    added = await repo.add_definition(
+        product_id=product_id, definition_revision=2,
+        fields={"unit": {"required": True}}, object_rules={}, examples=[],
+        trial_questions=[], scope_items=(), created_by="tester",
+    )
+    assert added["definition_revision"] == 2
+    # 旧定义仍在——已发布修订指向它
+    assert (await repo.get_definition(product_id, 1)) is not None
+    assert await repo.next_definition_revision(product_id) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_new_draft_picks_up_the_latest_definition(repo, product_id) -> None:
+    """改了定义如果新草稿还按旧定义走，「改定义」对制作就毫无效果。"""
+    await repo.add_definition(
+        product_id=product_id, definition_revision=2, fields={}, object_rules={},
+        examples=[], trial_questions=[], scope_items=(), created_by="tester",
+    )
+    revision_no = await repo.write_draft_revision(
+        product_id=product_id, objects=[_row("DataProduct@a")], edges=[], evidence=[],
+    )
+    revision = await repo.get_revision(product_id, revision_no)
+    assert revision["definition_revision"] == 2
+
+
+@pytest.mark.asyncio
+async def test_issue_round_trip(repo, product_id) -> None:
+    issue = await repo.record_issue(
+        product_id=product_id, used_revision=1, object_id="DataProduct@a",
+        field_name="model", task="选型对比", problem="单位错了",
+        correction_basis="功耗指南 2.2", reporter="lisi",
+    )
+    assert issue["status"] == "open"
+    assert len(await repo.list_issues(product_id, status="open")) == 1
+
+    resolved = await repo.resolve_issue(
+        issue_id=issue["id"], status="resolved", resolution_kind="definition",
+        resolution_note="口径写进对象规则", resolved_by="zhangsan",
+    )
+    assert resolved["status"] == "resolved"
+    assert resolved["resolution_kind"] == "definition"
+    assert await repo.list_issues(product_id, status="open") == []
+
+
+@pytest.mark.asyncio
+async def test_bad_resolution_kind_is_rejected_by_the_check(repo, product_id) -> None:
+    import psycopg
+
+    issue = await repo.record_issue(
+        product_id=product_id, used_revision=None, object_id=None, field_name=None,
+        task=None, problem="x", correction_basis=None, reporter="a",
+    )
+    with pytest.raises(psycopg.errors.CheckViolation):
+        await repo.resolve_issue(
+            issue_id=issue["id"], status="resolved", resolution_kind="whatever",
+            resolution_note=None, resolved_by="z",
+        )
+
+
+@pytest.mark.asyncio
+async def test_snapshot_states_reads_lifecycle_and_finds_newer(pg_pool, repo) -> None:
+    """影响分析的两个事实源：快照生命周期，以及同文档有没有更新的快照。"""
+    import uuid as _uuid
+
+    document_id = f"doc_{_uuid.uuid4().hex[:8]}"
+    old_snap = f"snap_{_uuid.uuid4().hex[:8]}"
+    new_snap = f"snap_{_uuid.uuid4().hex[:8]}"
+
+    async with pg_pool.connection() as conn:
+        await conn.execute(
+            """INSERT INTO asset_documents
+               (id, domain, document_key, document_name, created_at)
+               VALUES (%s, 'test', %s, 'doc', now()::text)
+               ON CONFLICT DO NOTHING""",
+            (document_id, document_id),
+        )
+        for snap, created, status in (
+            (old_snap, "2026-01-01T00:00:00+00:00", "DEPRECATED"),
+            (new_snap, "2026-06-01T00:00:00+00:00", "READY"),
+        ):
+            await conn.execute(
+                """INSERT INTO asset_document_snapshots
+                   (id, domain, normalized_content_hash, raw_content_hash,
+                    mime_type, lifecycle_status, created_at)
+                   VALUES (%s, 'test', %s, %s, 'text/markdown', %s, %s)""",
+                (snap, _uuid.uuid4().hex, _uuid.uuid4().hex, status, created),
+            )
+            await conn.execute(
+                """INSERT INTO asset_document_snapshot_links
+                   (id, document_id, document_snapshot_id, relative_path,
+                    source_uri, linked_at)
+                   VALUES (%s, %s, %s, 'p', 'u', now()::text)""",
+                (_uuid.uuid4().hex, document_id, snap),
+            )
+
+    states, newer = await repo.snapshot_states([old_snap])
+    assert states[old_snap]["lifecycle_status"] == "DEPRECATED"
+    assert document_id in newer, "同文档存在更新的快照，应被识别为已过时"

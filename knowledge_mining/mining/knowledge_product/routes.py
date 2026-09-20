@@ -421,3 +421,163 @@ def _issue_payload(exc: ValidationRejected) -> dict[str, Any]:
             for issue in exc.issues
         ],
     }
+
+
+# ----------------------------------------------------------------- 制品运营（P7）
+
+
+class DefinitionUpdate(BaseModel):
+    fields: dict[str, Any] | None = None
+    object_rules: dict[str, Any] | None = None
+    examples: list[Any] | None = None
+    trial_questions: list[Any] | None = None
+    scope_items: list[ScopeItemIn] | None = Field(
+        default=None, description="不传 = 沿用当前范围；传了即整体替换",
+    )
+
+
+class IssueReport(BaseModel):
+    problem: str = Field(min_length=1, max_length=4000)
+    object_id: str | None = None
+    field_name: str | None = None
+    task: str | None = Field(default=None, max_length=1000)
+    correction_basis: str | None = Field(default=None, max_length=4000)
+    used_revision: int | None = None
+
+
+class IssueResolution(BaseModel):
+    status: str = Field(pattern="^(triaged|resolved|rejected)$")
+    resolution_kind: str | None = Field(
+        default=None, pattern="^(source|definition|content|agent_usage|none)$",
+    )
+    resolution_note: str | None = Field(default=None, max_length=4000)
+
+
+@router.get("/{product_id}/definition")
+async def get_definition(
+    product_id: str,
+    _user: dict = Depends(current_user),
+    service: KnowledgeProductService = Depends(get_product_service),
+) -> dict[str, Any]:
+    try:
+        definition = await service.current_definition(product_id)
+    except NotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if definition is None:
+        raise HTTPException(404, "该制品还没有定义修订")
+    return definition
+
+
+@router.patch("/{product_id}/definition")
+async def update_definition(
+    product_id: str,
+    payload: DefinitionUpdate,
+    request: Request,
+    domain: str = Query(...),
+    user: dict = Depends(current_user),
+    service: KnowledgeProductService = Depends(get_product_service),
+) -> dict[str, Any]:
+    """改制品定义 = 开新的一版，并**立即撤销该制品的在用票据**。
+
+    撤票不是可选项：Agent 手里的旧票据绑定旧定义修订，按旧范围继续提交就等于绕过
+    了这次改动（50号 §7.1「资料或字段定义变更后，旧票据不能按旧范围继续提交」）。
+    两件事在这里组合，而不是让载体层反过来依赖制作面。
+    """
+    from knowledge_mining.mining.agent_creation.routes import get_creation_service
+
+    try:
+        definition = await service.update_definition(
+            product_id,
+            editor=user["username"],
+            fields=payload.fields,
+            object_rules=payload.object_rules,
+            examples=payload.examples,
+            trial_questions=payload.trial_questions,
+            scope_items=(
+                None if payload.scope_items is None
+                else [
+                    ScopeItem(
+                        document_id=item.document_id,
+                        snapshot_id=item.snapshot_id,
+                        allowed_sections=item.allowed_sections,
+                    )
+                    for item in payload.scope_items
+                ]
+            ),
+        )
+    except NotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    creation = await get_creation_service(request, domain)
+    revoked = await creation.invalidate_product_tickets(
+        product_id, reason="制品定义已更新，旧票据按旧定义提交不再有效",
+    )
+    return {"definition": definition, "revoked_tickets": revoked}
+
+
+@router.post("/{product_id}/issues", status_code=201)
+async def report_issue(
+    product_id: str,
+    payload: IssueReport,
+    user: dict = Depends(current_user),
+    service: KnowledgeProductService = Depends(get_product_service),
+) -> dict[str, Any]:
+    """在制品上报告问题（48号 §八）。缺省记当前发布修订。"""
+    try:
+        return await service.report_issue(
+            product_id,
+            problem=payload.problem, reporter=user["username"],
+            used_revision=payload.used_revision, object_id=payload.object_id,
+            field_name=payload.field_name, task=payload.task,
+            correction_basis=payload.correction_basis,
+        )
+    except NotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get("/{product_id}/issues")
+async def list_issues(
+    product_id: str,
+    status: str | None = Query(default=None),
+    _user: dict = Depends(current_user),
+    service: KnowledgeProductService = Depends(get_product_service),
+) -> list[dict[str, Any]]:
+    return await service.list_issues(product_id, status)
+
+
+@router.patch("/{product_id}/issues/{issue_id}")
+async def resolve_issue(
+    product_id: str,
+    issue_id: str,
+    payload: IssueResolution,
+    user: dict = Depends(current_user),
+    service: KnowledgeProductService = Depends(get_product_service),
+) -> dict[str, Any]:
+    try:
+        return await service.resolve_issue(
+            issue_id, status=payload.status, resolved_by=user["username"],
+            resolution_kind=payload.resolution_kind,
+            resolution_note=payload.resolution_note,
+        )
+    except NotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/{product_id}/source-alerts")
+async def source_alerts(
+    product_id: str,
+    revision: int | None = Query(default=None),
+    _user: dict = Depends(current_user),
+    service: KnowledgeProductService = Depends(get_product_service),
+) -> dict[str, Any]:
+    """这一版引用的资料现在有哪些变了（48号 §八）。缺省看发布修订。"""
+    try:
+        alerts = await service.source_alerts(product_id, revision)
+    except NotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "alerts": [alert.as_dict() for alert in alerts],
+        "blocking": any(alert.blocking for alert in alerts),
+    }
