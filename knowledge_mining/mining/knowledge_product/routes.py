@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from knowledge_mining.mining.api.deps import get_domain_async_pool
 from knowledge_mining.mining.kb.auth import current_user
 from knowledge_mining.mining.knowledge_product.repository import ScopeItem
 from knowledge_mining.mining.knowledge_product.review import ReviewRejected
@@ -22,7 +23,14 @@ from knowledge_mining.mining.knowledge_product.service import (
 router = APIRouter(prefix="/api/knowledge-products", tags=["knowledge-product"])
 
 
-async def get_product_service(request: Request) -> KnowledgeProductService:
+async def get_product_service(
+    request: Request, domain: str = Query(...),
+) -> KnowledgeProductService:
+    """制品仓储走**按域路由**的 asset_core 池，不是主库。
+
+    52号 D6：制品不跨知识域，``kp_*`` 落该域的 asset_core。鉴权仍在主库
+    （kb_users 不分域），所以只有仓储这一侧换池。
+    """
     from knowledge_mining.mining.file_management.repositories_pg import (
         PgStorageObjectRepository,
     )
@@ -34,7 +42,7 @@ async def get_product_service(request: Request) -> KnowledgeProductService:
         KnowledgeProductRepository,
     )
 
-    pool = request.app.state.pg_pool
+    pool = await get_domain_async_pool(request, domain)
     config = request.app.state.object_store_config
     return KnowledgeProductService(
         KnowledgeProductRepository(pool),

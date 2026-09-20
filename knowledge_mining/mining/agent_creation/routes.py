@@ -17,9 +17,10 @@ import logging
 from hmac import compare_digest
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from knowledge_mining.mining.api.deps import get_domain_async_pool
 from knowledge_mining.mining.agent_creation.models import TicketRejected
 from knowledge_mining.mining.agent_creation.service import AgentCreationService
 from knowledge_mining.mining.kb.auth import current_user
@@ -33,7 +34,15 @@ admin_router = APIRouter(prefix="/api/knowledge-products", tags=["knowledge-prod
 tool_router = APIRouter(prefix="/api/creation", tags=["knowledge-product"])
 
 
-async def get_creation_service(request: Request) -> AgentCreationService:
+async def get_creation_service(
+    request: Request, domain: str = Query(...),
+) -> AgentCreationService:
+    """同 ``get_product_service``：仓储走按域路由的 asset_core 池。
+
+    工具面（``/api/creation/*``）没有前端注入 domain，由 mcp_server 按**钥匙绑定的
+    单域**显式传——票据本身不带域，而要查票据先得选对库，这个先后顺序解不开，
+    所以域必须由调用方声明。
+    """
     from knowledge_mining.mining.agent_creation.repository import (
         CreationRepository,
         PgSegmentLocator,
@@ -50,7 +59,7 @@ async def get_creation_service(request: Request) -> AgentCreationService:
     )
     from knowledge_mining.mining.knowledge_product.service import KnowledgeProductService
 
-    pool = request.app.state.pg_pool
+    pool = await get_domain_async_pool(request, domain)
     config = request.app.state.object_store_config
     product_repo = KnowledgeProductRepository(pool)
     products = KnowledgeProductService(

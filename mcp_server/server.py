@@ -549,8 +549,8 @@ def get_creation_context(task_ticket: str) -> dict:
         task_ticket: 平台签发的任务票据。它决定这次能读什么、能写到哪个草稿；
             票据短期有效，过期或被撤销后须向平台重新取票。
     """
-    _identity()
-    return backend.get_creation_context(task_ticket)
+    ident = _identity()
+    return backend.get_creation_context(task_ticket, _domain(ident, None))
 
 
 @mcp.tool()
@@ -585,9 +585,10 @@ def submit_creation_result(
             get_knowledge 的返回，原样带回，不要自己编。
         product_id: 可选，写上则平台额外校验票据确实绑定这个制品。
     """
-    _identity()
+    ident = _identity()
     return backend.submit_creation_result(
-        task_ticket, submission_id, based_on_draft_revision, documents, product_id,
+        task_ticket, submission_id, based_on_draft_revision, documents,
+        _domain(ident, None), product_id,
     )
 
 

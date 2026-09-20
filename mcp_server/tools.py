@@ -249,7 +249,7 @@ async def put_upload_direct(ticket: str, stream) -> tuple[int, dict]:
 # 所以这里不传 username/kb_ids/domain——传了也不会被采信。
 
 
-def _post_creation(path: str, payload: dict) -> dict:
+def _post_creation(path: str, payload: dict, *, domain: str) -> dict:
     """POST /api/creation/*。403 是票据被拒，要把原因码原样交给 Agent——
     走 ``_post`` 会被翻译成「需要库的编辑权限」，那对票据场景是错的消息。"""
     secret = _internal_auth_secret()
@@ -259,6 +259,9 @@ def _post_creation(path: str, payload: dict) -> dict:
         resp = httpx.post(
             f"{MINING_URL}{path}",
             json=payload,
+            # 制品落按域路由的库，而票据本身不带域——要查票据先得选对库，
+            # 所以域由钥匙（单域钥匙）声明，不由票据推断。
+            params={"domain": domain},
             headers={"X-Internal-Auth": secret},
             timeout=TOOLS_TIMEOUT,
             trust_env=False,
@@ -288,9 +291,11 @@ def _post_creation(path: str, payload: dict) -> dict:
     return resp.json()
 
 
-def get_creation_context(task_ticket: str) -> dict:
+def get_creation_context(task_ticket: str, domain: str) -> dict:
     """票据 → 本次制作的工作定义与可读材料清单。"""
-    return _post_creation("/api/creation/context", {"task_ticket": task_ticket})
+    return _post_creation(
+        "/api/creation/context", {"task_ticket": task_ticket}, domain=domain,
+    )
 
 
 def submit_creation_result(
@@ -298,6 +303,7 @@ def submit_creation_result(
     submission_id: str,
     based_on_draft_revision: int,
     documents: list[str],
+    domain: str,
     product_id: str | None = None,
 ) -> dict:
     """票据 + 一批对象 md → 校验后写入绑定草稿，返回回执。
@@ -313,4 +319,4 @@ def submit_creation_result(
     }
     if product_id:
         payload["product_id"] = product_id
-    return _post_creation("/api/creation/submit", payload)
+    return _post_creation("/api/creation/submit", payload, domain=domain)
