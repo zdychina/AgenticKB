@@ -76,6 +76,8 @@ const pageTitles: Record<string, string> = {
   'kb-run-detail': '知识库',
   'kb-run-doc-detail': '知识库',
   'kb-doc-preview': '知识库',
+  products: '知识制品',
+  'product-detail': '知识制品',
   'mining-workflows': '挖掘范式',
   'mining-workflow-editor': '挖掘范式',
   paradigm: '检索范式',

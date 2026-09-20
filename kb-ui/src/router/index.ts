@@ -26,6 +26,17 @@ const router = createRouter({
           component: () => import('@/views/kb/KbListView.vue'),
         },
         {
+          path: 'products',
+          name: 'products',
+          component: () => import('@/views/product/ProductListView.vue'),
+        },
+        {
+          path: 'products/:productId',
+          name: 'product-detail',
+          component: () => import('@/views/product/ProductDetailView.vue'),
+          props: true,
+        },
+        {
           path: 'mcp',
           name: 'mcp-access',
           component: () => import('@/views/McpAccessView.vue'),

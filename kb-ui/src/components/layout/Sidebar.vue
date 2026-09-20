@@ -64,6 +64,8 @@ const logoSrc = computed(() => (brand.icon.trim() ? resolveIcon(brand.icon) : ''
 const ALL_NAV = [
   { path: '/', label: '概览', icon: Monitor, requiresAdmin: false },
   { path: '/kb', label: '知识库', icon: Files, requiresAdmin: false },
+  // 52号：知识制品（跟随当前知识域——制品不跨域）
+  { path: '/products', label: '知识制品', icon: Management, requiresAdmin: false },
   { path: '/mcp', label: 'MCP 接入', icon: Key, requiresAdmin: false },
   // 47 号：一张网接入（管理员：产品文档导入/重同步；KB 侧引用在知识库详情 tab）
   { path: '/onenet', label: '一张网接入', icon: Key, requiresAdmin: true },
