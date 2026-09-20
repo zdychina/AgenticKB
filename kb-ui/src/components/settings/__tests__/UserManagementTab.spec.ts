@@ -11,7 +11,14 @@ const api = vi.hoisted(() => ({
 const ui = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }))
 
 vi.mock('@/api/auth', () => ({ useAuthApi: () => api }))
-vi.mock('@/api/proxyClient', () => ({ apiErrorDetail: async () => '失败' }))
+// 只覆盖 apiErrorDetail，其余原样透出。
+// 不能写成全量替换的工厂：UserManagementTab → stores/domain → api/controlPlane 这条链上，
+// controlPlane 在模块顶层就调 installAuthInterceptors，缺了它 import 期直接崩。
+// 用 importOriginal 之后，proxyClient 以后再加导出也不会把这个测试带崩。
+vi.mock('@/api/proxyClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/proxyClient')>()),
+  apiErrorDetail: async () => '失败',
+}))
 vi.mock('element-plus', () => ({
   ElMessage: { success: ui.success, error: ui.error, warning: ui.warning },
   ElMessageBox: { prompt: vi.fn().mockRejectedValue('cancel') },
