@@ -176,9 +176,11 @@ async def test_segment_locator_reads_real_segments(pg_pool) -> None:
             (snapshot_id, uuid.uuid4().hex, uuid.uuid4().hex),
         )
         await conn.execute(
+            # raw_text / normalized_text / content_hash / normalized_hash 都非空
             """INSERT INTO asset_raw_segments
-               (id, document_snapshot_id, segment_key, segment_index, section_path)
-               VALUES (%s, %s, 'k', 0, %s)""",
+               (id, document_snapshot_id, segment_key, segment_index, section_path,
+                raw_text, normalized_text, content_hash, normalized_hash)
+               VALUES (%s, %s, 'k', 0, %s, 't', 't', 'h', 'h')""",
             (
                 segment_id, snapshot_id,
                 json.dumps([{"level": 1, "title": "3 硬件"},

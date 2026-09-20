@@ -239,11 +239,13 @@ async def test_knowledge_product_artifact_class_is_accepted(pg_pool) -> None:
     object_id = f"kpo_{uuid.uuid4().hex}"
     async with pg_pool.connection() as conn:
         await conn.execute(
+            # created_at 在这张表是 timestamptz（与 asset_document_snapshots 的
+            # TEXT 不同——既有 schema 本身不一致，测试里别想当然）
             """INSERT INTO asset_storage_objects
                (id, provider, bucket, object_key, sha256, size, mime,
                 artifact_class, state, created_at)
                VALUES (%s, 'fake', 'b', %s, 'h', 1, 'text/markdown',
-                       'knowledge_product', 'AVAILABLE', now()::text)""",
+                       'knowledge_product', 'AVAILABLE', now())""",
             (object_id, f"k/{object_id}"),
         )
         cur = await conn.execute(
