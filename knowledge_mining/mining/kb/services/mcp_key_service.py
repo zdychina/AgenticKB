@@ -64,11 +64,19 @@ _KEY_RANDOM_BYTES = 32
 #: 白名单与描述键的校验基线，与 mcp_server 的工具注册一一对应：
 #: - get_knowledge = get_content + browse_knowledge + inspect_knowledge +
 #:   navigate_structure + query_structured_asset（一切读取行为）
+#: 52号 P2/P3 的制作工具：只有在 open_tools 里显式列出才对该钥匙开放
+#: （``open_tools is None`` = 全开那条默认**不覆盖**它们，见 mcp_server/identity.py）。
+#: 权限边界不在钥匙上，在每次调用传的 task_ticket 上。
+MCP_CREATION_TOOL_NAMES = frozenset({
+    "get_creation_context",
+    "submit_creation_result",
+})
+
 MCP_TOOL_NAMES = frozenset({
     "search_knowledge",
     "get_knowledge",
     "upload_document",
-})
+}) | MCP_CREATION_TOOL_NAMES
 
 #: 工具族合并改名映射（2026-08-31 两轮 9→7→3）：旧名 → 新名。任一旧源开启
 #: 即新工具开启；全部旧源都不在清单（=显式关闭）则新工具不开启（关闭语义优先）。

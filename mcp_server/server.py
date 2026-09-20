@@ -530,5 +530,65 @@ async def _direct_upload(request):
         )
     return JSONResponse(body)
 
+# ── 制作工具族（52号 P2/P3）───────────────────────────────────────────────
+# 默认不开放：只有在钥匙的 open_tools 里显式列出才出现在 tools/list
+# （见 identity.CREATION_TOOL_NAMES）。真正的权限边界是每次调用传的 task_ticket。
+
+
+@mcp.tool()
+def get_creation_context(task_ticket: str) -> dict:
+    """取本次知识制品制作的工作定义与可读材料清单——开工第一件事。
+
+    返回：制品目标、字段定义与输出契约、本次允许读的资料清单（文档快照 + 章节
+    范围）、人工样例、已定的关键判断、当前草稿摘要。**不返回原文**——大文档用
+    get_knowledge 按需读。
+
+    每次继续工作前都应重取一次：草稿修订或字段定义变过之后，按旧定义提交会被拒。
+
+    Args:
+        task_ticket: 平台签发的任务票据。它决定这次能读什么、能写到哪个草稿；
+            票据短期有效，过期或被撤销后须向平台重新取票。
+    """
+    _identity()
+    return backend.get_creation_context(task_ticket)
+
+
+@mcp.tool()
+def submit_creation_result(
+    task_ticket: str,
+    submission_id: str,
+    based_on_draft_revision: int,
+    documents: list[str],
+    product_id: str | None = None,
+) -> dict:
+    """提交一批制品对象到绑定草稿——**这是成果进入平台的唯一通道**。
+
+    聊天里的回复、工作目录里的文件、附件都不算交付；只有本工具返回 outcome=accepted
+    的回执才算。拿到回执前不要声称已完成。
+
+    回执里的 outcome：
+    - accepted：已写入，written_revision 是新的草稿修订号；rejected 列出本批中被
+      逐条拒收的对象（其余已落库），pending_merge 是人已改过、不会被你覆盖的对象。
+    - conflict：你基于的草稿修订已过期——重调 get_creation_context 再提交。
+    - rejected：本批没有可接收的对象，逐条原因在 rejected 里。
+
+    Args:
+        task_ticket: 任务票据。
+        submission_id: 你生成的稳定 UUID。**网络失败就用同一个 ID 重试**——平台按它
+            幂等，不会重复写；换新 ID 才会被当成新的一批。
+        based_on_draft_revision: 你这批内容基于的草稿修订号，取自 get_creation_context
+            的 product.draft_revision。
+        documents: 本批对象的 md 正文（每个元素一篇完整 md：frontmatter + 正文 +
+            ## 边）。**一次不要交太多**，先交一小批拿到回执确认格式无误再继续。
+            每个关键值必须在 frontmatter 的 fields 里带证据，且证据必须含
+            document_id / snapshot_id / segment_id 三个 ID——segment_id 来自
+            get_knowledge 的返回，原样带回，不要自己编。
+        product_id: 可选，写上则平台额外校验票据确实绑定这个制品。
+    """
+    _identity()
+    return backend.submit_creation_result(
+        task_ticket, submission_id, based_on_draft_revision, documents, product_id,
+    )
+
 
 __all__ = ["mcp", "__version__"]

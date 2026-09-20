@@ -79,6 +79,10 @@ VALID_ARTIFACT_CLASSES: frozenset[str] = frozenset({
     "page_render",
     "binary_asset",
     "temporary",
+    # 52号 P1：知识制品对象的 md 正文。与 source 分开——它不是用户上传的原始资料，
+    # 而是平台产出的制品内容，保留策略与配额口径都不同。
+    # 加值时同步 018_knowledge_product.sql 里 asset_storage_objects 的 CHECK。
+    "knowledge_product",
 })
 
 # --- Confidence dimensions (SRS §5.3) ---------------------------------------

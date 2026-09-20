@@ -133,6 +133,21 @@ _USER_DOMAINS_DDL = (
 )
 # 51号批次2：MCP 多钥匙化——一人多把单域钥匙 + 钥匙级开放库。
 _MCP_KEYS_DDL = _REPO_ROOT / "databases" / "kb" / "schemas" / "014_mcp_keys.sql"
+# 52号 P1：知识制品载体（kp_*）。依赖 002（asset_document_snapshots /
+# asset_raw_segments，证据外键）与 008（asset_storage_objects，正文引用），挂链尾。
+_KNOWLEDGE_PRODUCT_DDL = (
+    _REPO_ROOT / "databases" / "asset_core" / "schemas" / "018_knowledge_product.sql"
+)
+# 52号 P2：制作面（实例/票据/提交/审核）。依赖 018 的 kp_products / kp_revisions。
+_KNOWLEDGE_PRODUCT_CREATION_DDL = (
+    _REPO_ROOT / "databases" / "asset_core" / "schemas"
+    / "019_knowledge_product_creation.sql"
+)
+# 52号 P4：人审/试用/发布（编辑留痕 + 试用记录）。依赖 018 的 kp_revisions。
+_KNOWLEDGE_PRODUCT_REVIEW_DDL = (
+    _REPO_ROOT / "databases" / "asset_core" / "schemas"
+    / "020_knowledge_product_review.sql"
+)
 # KB 硬删任务化（013）：status 加 deleting + kb_purge_tasks 进度表。
 _KB_PURGE_TASKS_DDL = (
     _REPO_ROOT / "databases" / "kb" / "schemas" / "013_kb_purge_tasks.sql"
@@ -243,6 +258,12 @@ def domain_schema_paths() -> tuple[Path, ...]:
         _USER_DOMAINS_DDL,
         # 51号批次2：MCP 多钥匙（依赖 kb_users/knowledge_bases，链尾安全）。
         _MCP_KEYS_DDL,
+        # 52号 P1：知识制品载体（依赖 002 的快照/段落表与 008 的对象存储表）。
+        _KNOWLEDGE_PRODUCT_DDL,
+        # 52号 P2：制作面（依赖 018）。
+        _KNOWLEDGE_PRODUCT_CREATION_DDL,
+        # 52号 P4：人审/试用/发布（依赖 018）。
+        _KNOWLEDGE_PRODUCT_REVIEW_DDL,
     )
 
 

@@ -1,0 +1,61 @@
+# 知识制品的对象类型注册表（52号计划 §5.4；移植自 newsfc default_registry.yaml）。
+#
+# 这是 D5「两级」的第一级：平台定「该类对象必须有哪些 frontmatter 字段 + 逻辑 ID
+# 几段 + 哪些必备章节」。第二级是单个制品的业务字段与对象规则，存
+# kp_product_definitions，不在这里。
+#
+# 注意：这里的类型是**对象类型**，不是制品类型。一个制品会同时产出多类对象——
+# 一个 cross scope 的身份对象（别的制品引用它）+ 若干 product scope 的对象卡
+# （逐字段回源查它）。见 52号 §5.4 F1。
+
+object_types:
+
+  # —— 制品对外身份对象：一个制品一个，正文是整张表/整篇专题 ——
+  DataProduct:
+    layer: Data
+    scope: cross
+    id_segments: 2
+    frontmatter_required: [id, type, name, owner, purpose, lifecycle_status, revision]
+    required_sections: ["## 边"]
+
+  # —— 制品内的对象卡：一行/一个对象一张 ——
+  DomainFactSet:
+    layer: Fact
+    scope: product
+    id_segments: 3
+    local_from: [model, product_version]
+    frontmatter_required: [id, type, product, name, fields]
+    required_sections: ["## 边"]
+    fields_block:
+      value_required: true
+      evidence_schema: [document_id, snapshot_id, segment_id, anchor, quoted_value]
+      # segment_id 必填才能 FK 到 asset_raw_segments 做「来源在允许范围内」的硬校验；
+      # anchor 是自由文本，只供页面打开正确位置。见 50号 §2.2 修订。
+      evidence_required_keys: [document_id, snapshot_id, segment_id]
+
+  # —— 跨制品共享的语义标准 ——
+  OntologyModule:
+    layer: Ontology
+    scope: cross
+    id_segments: 2
+    frontmatter_required: [id, type, name, revision]
+    required_sections: ["## 边"]
+
+  # —— 以下首期占位，不实现 ——
+  RulePackage:
+    layer: Rule
+    scope: product
+    id_segments: 3
+    frontmatter_required: [id, type, product, name]
+
+  ScenarioPackage:
+    layer: Scenario
+    scope: cross
+    id_segments: 2
+    frontmatter_required: [id, type, name]
+
+  MethodPackage:
+    layer: Method
+    scope: cross
+    id_segments: 2
+    frontmatter_required: [id, type, name]

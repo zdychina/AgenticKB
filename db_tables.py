@@ -50,6 +50,23 @@ EXPORT_TABLES = [
     "ontology_evidence_nodes",
     "asset_segment_entity_mentions",
     "ontology_candidates",
+    # knowledge_product（52号 P1 知识制品载体）——须排在 asset_core 之后：
+    # kp_scope_items / kp_evidence 的 FK 指向 asset_document_snapshots /
+    # asset_raw_segments，kp_objects 指向 asset_storage_objects。
+    "kp_products",
+    "kp_product_definitions",
+    "kp_scope_items",
+    "kp_revisions",
+    "kp_objects",
+    "kp_edges",
+    "kp_evidence",
+    # 制作面（019）——排在载体之后：FK 指向 kp_products / kp_revisions。
+    "kp_creation_instances",
+    "kp_task_tickets",
+    "kp_submissions",
+    "kp_reviews",
+    "kp_object_edits",
+    "kp_trials",
     # operator（检索范式）——见 OPTIONAL_TABLES
     "operator_paradigm",
     "operator_paradigm_version",

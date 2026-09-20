@@ -241,3 +241,76 @@ async def put_upload_direct(ticket: str, stream) -> tuple[int, dict]:
     except ValueError:
         body = {"detail": resp.text[:200]}
     return resp.status_code, body
+
+
+# ── 制作工具族（52号 P2/P3） ──────────────────────────────────────────────
+# 后端在 mining 的 /api/creation/*：这两条在 auth_guard 的 service-only 豁免名单里，
+# 路由内自验 X-Internal-Auth。**可读/可写范围由 task_ticket 决定，不由服务身份决定**，
+# 所以这里不传 username/kb_ids/domain——传了也不会被采信。
+
+
+def _post_creation(path: str, payload: dict) -> dict:
+    """POST /api/creation/*。403 是票据被拒，要把原因码原样交给 Agent——
+    走 ``_post`` 会被翻译成「需要库的编辑权限」，那对票据场景是错的消息。"""
+    secret = _internal_auth_secret()
+    if not secret:
+        raise ToolBackendError("服务端未完成内部鉴权配置，请联系管理员。")
+    try:
+        resp = httpx.post(
+            f"{MINING_URL}{path}",
+            json=payload,
+            headers={"X-Internal-Auth": secret},
+            timeout=TOOLS_TIMEOUT,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("creation %s unreachable: %s", path, exc)
+        raise ToolBackendError("知识服务暂不可用，请稍后重试。") from None
+
+    if resp.status_code == 403:
+        detail = {}
+        try:
+            detail = resp.json().get("detail") or {}
+        except ValueError:
+            detail = {}
+        if isinstance(detail, dict) and detail.get("code"):
+            raise ToolBackendError(f"[{detail['code']}] {detail.get('message') or '任务票据被拒绝'}")
+        raise ToolBackendError("任务票据被拒绝。")
+    if resp.status_code == 404:
+        raise ToolBackendError("票据绑定的制品或制作实例不存在。")
+    if resp.status_code != 200:
+        detail = ""
+        try:
+            detail = str(resp.json().get("detail") or "")[:160]
+        except ValueError:
+            detail = resp.text[:160]
+        raise ToolBackendError(f"操作失败（HTTP {resp.status_code}）：{detail}")
+    return resp.json()
+
+
+def get_creation_context(task_ticket: str) -> dict:
+    """票据 → 本次制作的工作定义与可读材料清单。"""
+    return _post_creation("/api/creation/context", {"task_ticket": task_ticket})
+
+
+def submit_creation_result(
+    task_ticket: str,
+    submission_id: str,
+    based_on_draft_revision: int,
+    documents: list[str],
+    product_id: str | None = None,
+) -> dict:
+    """票据 + 一批对象 md → 校验后写入绑定草稿，返回回执。
+
+    校验不过是**回执里的结果**（rejected / conflict），不是异常——只有票据那一道
+    不过才会抛（403）。
+    """
+    payload: dict = {
+        "task_ticket": task_ticket,
+        "submission_id": submission_id,
+        "based_on_draft_revision": based_on_draft_revision,
+        "documents": documents,
+    }
+    if product_id:
+        payload["product_id"] = product_id
+    return _post_creation("/api/creation/submit", payload)

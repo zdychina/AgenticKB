@@ -34,6 +34,13 @@ from knowledge_mining.mining.kb.routes.auth import router as kb_auth_router
 from knowledge_mining.mining.kb.routes.mcp_keys import router as kb_mcp_keys_router
 from knowledge_mining.mining.kb.routes.mcp_tools import router as kb_mcp_tools_router
 from knowledge_mining.mining.kb.routes.overview import router as kb_overview_router
+from knowledge_mining.mining.knowledge_product.routes import (
+    router as knowledge_product_router,
+)
+from knowledge_mining.mining.agent_creation.routes import (
+    admin_router as creation_admin_router,
+    tool_router as creation_tool_router,
+)
 from knowledge_mining.mining.onenet.routes import (
     refs_router as onenet_refs_router,
     router as onenet_router,
@@ -285,6 +292,14 @@ def create_app() -> FastAPI:
     app.include_router(kb_mining_router)
     app.include_router(kb_folders_router)
     app.include_router(workflows_router)
+    # 52号 P1：知识制品载体（/api/knowledge-products/*）。独立 prefix，不与 /api/kb
+    # 的动态段相争。
+    app.include_router(knowledge_product_router)
+    # 52号 P2：制作面。admin_router 与载体共用 /api/knowledge-products 前缀，其路由
+    # 第二段都是字面量（creation-instances / tickets），不与载体的动态段冲突；
+    # tool_router 的两条在 auth_guard 的 service-only 豁免名单里，路由内自验内部密钥。
+    app.include_router(creation_admin_router)
+    app.include_router(creation_tool_router)
 
     # Allow cross-origin requests from the dev server and any local UI.
     from knowledge_mining.mining.api.auth_guard import MiningApiAuthMiddleware

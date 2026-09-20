@@ -75,6 +75,18 @@ TOOL_NAMES = frozenset({
     "upload_document",
 })
 
+#: 制作工具（52号 P2/P3）。**不进默认开放集**——``open_tools is None`` 等于「全开」，
+#: 若把它们并进 TOOL_NAMES，每把存量钥匙都会凭空多出两个工具，污染所有 Agent 的
+#: 工具清单。它们是给 DSH 那把固定服务钥匙用的，必须在 open_tools 里显式列出才开。
+#: 真正的权限边界不在这里——在每次调用传的 task_ticket 上。
+CREATION_TOOL_NAMES = frozenset({
+    "get_creation_context",
+    "submit_creation_result",
+})
+
+#: open_tools 白名单的校验基线（默认开放集 + 需显式开启的）。
+ALL_TOOL_NAMES = TOOL_NAMES | CREATION_TOOL_NAMES
+
 
 @dataclass(frozen=True)
 class Identity:
@@ -95,10 +107,15 @@ class Identity:
         return [k["id"] for k in self.open_kbs]
 
     def tool_enabled(self, name: str) -> bool:
+        if name in CREATION_TOOL_NAMES:
+            # 制作工具只认显式开启，不吃「未配置 = 全开」那条默认
+            return self.open_tools is not None and name in self.open_tools
         return self.open_tools is None or name in self.open_tools
 
     def enabled_tools(self) -> frozenset[str]:
-        return TOOL_NAMES if self.open_tools is None else frozenset(self.open_tools)
+        if self.open_tools is None:
+            return TOOL_NAMES
+        return frozenset(self.open_tools) & ALL_TOOL_NAMES
 
     def tool_description(self, name: str, default: str | None) -> str | None:
         for d in self.tool_descriptions:

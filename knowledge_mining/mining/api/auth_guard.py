@@ -24,6 +24,10 @@ _SERVICE_ONLY_ROUTES = frozenset({
     ("POST", "/api/kb/mcp-tools/list-documents"),
     ("POST", "/api/kb/mcp-tools/begin-upload"),
     ("POST", "/api/kb/admin/reload-auth-config"),
+    # 52号 P2：制作 MCP 的两个工具后端（internal-only，路由内自验 X-Internal-Auth；
+    # 调用方的可读范围由 body 里的 task_ticket 决定，不由服务身份决定）。
+    ("POST", "/api/creation/context"),
+    ("POST", "/api/creation/submit"),
 })
 
 #: 直传 PUT 是动态票据路径（内部密钥 + 票据 + 用户绑定三重校验在路由内）。

@@ -1,0 +1,66 @@
+# 制品定义 —— kp_products + kp_product_definitions + kp_scope_items 的文件形态
+# 平台里这三张表的内容，在 fixture 里合成一个文件。
+# ⚠️ 全部为虚构数据。
+
+product:
+  product_id: spec-ne8000
+  product_type: DataProduct
+  name: NE8000 产品规格矩阵
+  purpose: 比较这些型号的能力，支持专业问答与方案准备
+  owner: zhangsan            # 51号批次3：制品身份不含 domain，归属由 owner 表达
+  lifecycle_status: draft
+  current_draft_revision: 3
+  released_revision: null
+
+definition:
+  definition_revision: 2
+
+  # —— 字段定义：这类对象卡必须有哪些业务字段（registry 只管身份字段，业务字段在这里）——
+  fields:
+    model:
+      label: 型号
+      required: true
+      evidence_required: true
+    product_version:
+      label: 产品版本
+      required: true
+      evidence_required: true
+    key_specification:
+      label: 关键规格
+      required: true
+      evidence_required: true
+      multivalued: true
+    unit:
+      label: 单位
+      required: true
+      evidence_required: false   # 单位随关键规格一起回源，不单独挂证据
+
+  # —— 对象规则：一行代表什么、怎么去重 ——
+  object_rules:
+    row_identity: [model, product_version]
+    row_identity_rule: 同一型号和同一产品版本为同一行；同型号不同版本必须拆成两行
+    unit_rule: 单位按资料原文保留，不做换算；原文无单位的不许补
+    conflict_rule: 两份资料给出不同值时，不得任选其一，必须写入 unresolved_items 并在对象卡标注
+
+  # —— 人工样例：至少一行已确认的 ——
+  examples:
+    - object_id: "spec-ne8000@DomainFactSet@NE8000-M8 V300R022"
+      note: 人工已逐字段核对，作为标准写法
+
+  # —— 试用问题：发布前的检验题 ——
+  trial_questions:
+    - 哪些型号的整机功耗不超过 3000 W？
+    - NE8000-M8 在 V300R022 和 V300R023 之间关键规格有什么变化？
+    - 有哪些型号的功耗存在口径冲突、还没定论？
+
+# —— 资料范围：kp_scope_items，票据校验的唯一依据 ——
+scope_items:
+  - document_id: doc_ne8000_hwinfo
+    snapshot_id: snap_0007
+    allowed_sections: ["3", "3.1", "3.2"]
+  - document_id: doc_ne8000_release_notes
+    snapshot_id: snap_0011
+    allowed_sections: ["2.4"]
+  - document_id: doc_ne8000_power_guide
+    snapshot_id: snap_0003
+    allowed_sections: null      # 整篇可读
