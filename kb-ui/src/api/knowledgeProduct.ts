@@ -6,9 +6,10 @@
  */
 import { createProxyClient, extractItems, extractOne } from '@/api/proxyClient'
 import type {
-  CreationInstance, KnowledgeProduct, ObjectEdit, ProductCreateBody, ProductObjectRow,
-  PublishGate, ReviewDecision, ReviewRecord, RevisionDiff, StartedInstance,
-  SubmissionRecord, TrialRecord, TrialVerdict,
+  CreationInstance, DefinitionUpdateBody, IssueStatus, KnowledgeProduct, ObjectEdit,
+  ProductCreateBody, ProductDefinition, ProductIssue, ProductObjectRow, PublishGate,
+  ResolutionKind, ReviewDecision, ReviewRecord, RevisionDiff, SourceAlertReport,
+  StartedInstance, SubmissionRecord, TrialRecord, TrialVerdict,
 } from '@/types/knowledgeProduct'
 
 const BASE = '/api/knowledge-products'
@@ -179,6 +180,66 @@ export function useKnowledgeProductApi() {
     async listSubmissions(productId: string): Promise<SubmissionRecord[]> {
       const { data } = await client.get(`${BASE}/${encodeURIComponent(productId)}/submissions`)
       return extractItems<SubmissionRecord>(data)
+    },
+
+    // ── 制品运营（P7）──
+    async getDefinition(productId: string): Promise<ProductDefinition> {
+      const { data } = await client.get(`${BASE}/${encodeURIComponent(productId)}/definition`)
+      return extractOne<ProductDefinition>(data)
+    },
+
+    /**
+     * 改定义 = 开新的一版，并**连带撤销该制品在用票据**。
+     * 返回里的 revoked_tickets 是这次撤掉的张数——要显示给人看，
+     * 否则「为什么 Agent 突然交不进来了」没人说得清。
+     */
+    async updateDefinition(
+      productId: string, body: DefinitionUpdateBody,
+    ): Promise<{ definition: ProductDefinition; revoked_tickets: number }> {
+      const { data } = await client.patch(
+        `${BASE}/${encodeURIComponent(productId)}/definition`, body,
+      )
+      return extractOne(data)
+    },
+
+    async reportIssue(
+      productId: string,
+      body: {
+        problem: string; object_id?: string; field_name?: string
+        task?: string; correction_basis?: string; used_revision?: number
+      },
+    ): Promise<ProductIssue> {
+      const { data } = await client.post(
+        `${BASE}/${encodeURIComponent(productId)}/issues`, body,
+      )
+      return extractOne<ProductIssue>(data)
+    },
+
+    async listIssues(productId: string, status?: IssueStatus): Promise<ProductIssue[]> {
+      const { data } = await client.get(`${BASE}/${encodeURIComponent(productId)}/issues`, {
+        params: status ? { status } : {},
+      })
+      return extractItems<ProductIssue>(data)
+    },
+
+    async resolveIssue(
+      productId: string, issueId: string,
+      body: { status: IssueStatus; resolution_kind?: ResolutionKind; resolution_note?: string },
+    ): Promise<ProductIssue> {
+      const { data } = await client.patch(
+        `${BASE}/${encodeURIComponent(productId)}/issues/${encodeURIComponent(issueId)}`,
+        body,
+      )
+      return extractOne<ProductIssue>(data)
+    },
+
+    /** 这一版引用的资料现在有哪些变了。缺省看发布修订。 */
+    async sourceAlerts(productId: string, revision?: number): Promise<SourceAlertReport> {
+      const { data } = await client.get(
+        `${BASE}/${encodeURIComponent(productId)}/source-alerts`,
+        { params: revision == null ? {} : { revision } },
+      )
+      return extractOne<SourceAlertReport>(data)
     },
   }
 }

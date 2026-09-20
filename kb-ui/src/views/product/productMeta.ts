@@ -71,3 +71,37 @@ export const verdictLabel = (v: TrialVerdict) => pick(VERDICT, v, 0) as string
 export const verdictTagType = (v: TrialVerdict) => pick(VERDICT, v, 1) as TagType
 
 export const gateLabel = (code: string) => GATE_LABELS[code] ?? code
+
+// ── P7：运营 ──────────────────────────────────────────────────────────────
+
+const ISSUE_STATUS: Record<string, [string, TagType]> = {
+  open: ['待处理', 'warning'],
+  triaged: ['已分诊', 'primary'],
+  resolved: ['已处置', 'success'],
+  rejected: ['不予处理', 'info'],
+}
+
+/** 处置方向而不是「已修复」一个布尔——区分开才知道下次该防哪一类。 */
+const RESOLUTION: Record<string, string> = {
+  source: '改资料',
+  definition: '改定义',
+  content: '改内容',
+  agent_usage: '改 Agent 用法',
+  none: '无需处理',
+}
+
+const ALERT: Record<string, [string, TagType]> = {
+  superseded: ['资料有新版本', 'warning'],
+  deprecated: ['资料已废弃', 'warning'],
+  revoked: ['资料已失效', 'danger'],
+}
+
+export const issueStatusLabel = (v: string) => ISSUE_STATUS[v]?.[0] ?? v
+export const issueStatusTagType = (v: string) => ISSUE_STATUS[v]?.[1] ?? 'info'
+export const resolutionLabel = (v: string | null) => (v ? RESOLUTION[v] ?? v : '—')
+export const alertLabel = (v: string) => ALERT[v]?.[0] ?? v
+export const alertTagType = (v: string) => ALERT[v]?.[1] ?? 'warning'
+
+export const RESOLUTION_OPTIONS = Object.entries(RESOLUTION).map(
+  ([value, label]) => ({ value, label }),
+)

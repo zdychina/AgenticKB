@@ -132,3 +132,54 @@ describe('knowledge product api client', () => {
     expect(state.requests[0].body).toEqual({ force: true })
   })
 })
+
+describe('knowledge product ops api (P7)', () => {
+  it('surfaces how many tickets a definition change revoked', async () => {
+    // 不显示这个数，「为什么 Agent 突然交不进来了」没人说得清
+    state.responses['patch /api/knowledge-products/p/definition'] = {
+      definition: { definition_revision: 2 }, revoked_tickets: 3,
+    }
+    const result = await useKnowledgeProductApi().updateDefinition('p', { fields: {} })
+    expect(result.revoked_tickets).toBe(3)
+    expect(result.definition.definition_revision).toBe(2)
+  })
+
+  it('omits untouched definition parts so the backend inherits them', async () => {
+    await useKnowledgeProductApi().updateDefinition('p', { fields: { a: {} } })
+    expect(state.requests[0].body).toEqual({ fields: { a: {} } })
+  })
+
+  it('filters issues by status when asked', async () => {
+    await useKnowledgeProductApi().listIssues('p', 'open')
+    expect((state.requests[0].config.params as Record<string, unknown>).status).toBe('open')
+  })
+
+  it('does not send a status filter when listing everything', async () => {
+    await useKnowledgeProductApi().listIssues('p')
+    expect((state.requests[0].config.params as Record<string, unknown>).status).toBeUndefined()
+  })
+
+  it('sends the resolution direction, not just a done flag', async () => {
+    await useKnowledgeProductApi().resolveIssue('p', 'kpis_1', {
+      status: 'resolved', resolution_kind: 'definition', resolution_note: '口径写进对象规则',
+    })
+    expect(state.requests[0].method).toBe('patch')
+    expect(state.requests[0].body).toEqual({
+      status: 'resolved', resolution_kind: 'definition', resolution_note: '口径写进对象规则',
+    })
+  })
+
+  it('encodes issue ids in the path', async () => {
+    await useKnowledgeProductApi().resolveIssue('p', 'kpis/1', { status: 'rejected' })
+    expect(state.requests[0].url).toContain('kpis%2F1')
+  })
+
+  it('reads source alerts with their blocking flag', async () => {
+    state.responses['get /api/knowledge-products/p/source-alerts'] = {
+      alerts: [{ kind: 'revoked', blocking: true, affected_count: 4 }], blocking: true,
+    }
+    const report = await useKnowledgeProductApi().sourceAlerts('p')
+    expect(report.blocking).toBe(true)
+    expect(report.alerts[0].kind).toBe('revoked')
+  })
+})

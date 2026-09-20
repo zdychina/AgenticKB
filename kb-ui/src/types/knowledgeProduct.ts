@@ -155,3 +155,76 @@ export interface StartedInstance {
   instance: CreationInstance
   ticket: { ticket_id: string; token: string; expires_at: string }
 }
+
+// ── P7：制品运营 ──────────────────────────────────────────────────────────
+
+export interface ProductDefinition {
+  id: string
+  product_id: string
+  definition_revision: number
+  fields_json: Record<string, unknown>
+  object_rules_json: Record<string, unknown>
+  examples_json: unknown[]
+  trial_questions_json: unknown[]
+  created_at: string
+  created_by: string
+}
+
+export interface DefinitionUpdateBody {
+  fields?: Record<string, unknown> | null
+  object_rules?: Record<string, unknown> | null
+  examples?: unknown[] | null
+  trial_questions?: unknown[] | null
+  /** 不传 = 沿用当前范围；传了即整体替换 */
+  scope_items?: ScopeItemInput[] | null
+}
+
+export type IssueStatus = 'open' | 'triaged' | 'resolved' | 'rejected'
+
+/** 处置方向而不是「已修复」一个布尔——区分开才知道下次该防哪一类。 */
+export type ResolutionKind = 'source' | 'definition' | 'content' | 'agent_usage' | 'none'
+
+export interface ProductIssue {
+  id: string
+  product_id: string
+  used_revision: number | null
+  object_id: string | null
+  field_name: string | null
+  task: string | null
+  problem: string
+  correction_basis: string | null
+  reporter: string
+  status: IssueStatus
+  resolution_kind: ResolutionKind | null
+  resolution_note: string | null
+  resolved_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 资料变更的影响类别。``revoked`` 是 blocking——不能只挂待办继续暴露。 */
+export type AlertKind = 'superseded' | 'deprecated' | 'revoked'
+
+export interface AffectedField {
+  product_id: string
+  revision: number
+  object_id: string
+  field: string
+  document_id: string
+  snapshot_id: string
+}
+
+export interface SourceAlert {
+  kind: AlertKind
+  blocking: boolean
+  snapshot_id: string
+  document_id: string
+  detail: string
+  affected_count: number
+  affected: AffectedField[]
+}
+
+export interface SourceAlertReport {
+  alerts: SourceAlert[]
+  blocking: boolean
+}
