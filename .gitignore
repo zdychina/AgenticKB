@@ -54,6 +54,7 @@
 !CLAUDE.md
 !docker-compose.yml
 !pyproject.toml
+!.gitattributes
 !deploy-build.sh
 !deploy-server.sh
 !deploy-sync.sh
