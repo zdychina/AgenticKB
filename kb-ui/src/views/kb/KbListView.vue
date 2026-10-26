@@ -63,11 +63,15 @@
           >
             <el-icon class="el-icon--left"><Cpu /></el-icon>挖掘
           </el-button>
-          <el-dropdown v-if="canWrite(kb)" trigger="click" @click.stop>
+          <el-dropdown trigger="click" @click.stop>
             <el-button size="small" text><el-icon><MoreFilled /></el-icon></el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="rename(kb)">改名</el-dropdown-item>
+                <!-- v1.1 整库拷贝：read 即可拷（成员/公开库均可起步） -->
+                <el-dropdown-item @click="copy(kb)">
+                  <el-icon><CopyDocument /></el-icon>拷贝
+                </el-dropdown-item>
+                <el-dropdown-item v-if="canWrite(kb)" @click="rename(kb)">改名</el-dropdown-item>
                 <el-dropdown-item v-if="canManageLifecycle(kb)" @click="remove(kb)" divided>删除知识库</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -120,13 +124,14 @@
     </div>
 
     <KbCreateDialog v-model="showCreate" :domain="domainStore.currentDomain" @created="load" />
+    <KbCopyDialog v-model="showCopy" :kb="copyTarget" @copied="onCopied" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Collection, Cpu, Document, Loading, MoreFilled, Plus, Refresh } from '@element-plus/icons-vue'
+import { Collection, CopyDocument, Cpu, Document, Loading, MoreFilled, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useDomainStore } from '@/stores/domain'
 import { useAuthStore } from '@/stores/auth'
@@ -136,6 +141,7 @@ import type { DeletedKbRow, KbPurgeTask } from '@/types/kb'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
 import KbCreateDialog from '@/components/kb/KbCreateDialog.vue'
+import KbCopyDialog from '@/components/kb/KbCopyDialog.vue'
 import {
   canManageKbLifecycle, canWriteKb, roleLabel, roleTagType,
   visibilityLabel, visibilityTagType,
@@ -150,6 +156,8 @@ const kbs = ref<KbSummary[]>([])
 const loading = ref(false)
 const loadError = ref('')
 const showCreate = ref(false)
+const showCopy = ref(false)
+const copyTarget = ref<KbSummary | null>(null)
 const miningId = ref<string | null>(null)
 let loadGeneration = 0
 
@@ -261,6 +269,18 @@ function canManageLifecycle(kb: KbSummary): boolean {
 
 function enter(kb: KbSummary) {
   router.push(`/kb/${kb.id}`)
+}
+
+/** v1.1 整库拷贝：read 即可拷（快照血缘共享，拷完自选范式挖掘）。 */
+function copy(kb: KbSummary) {
+  copyTarget.value = kb
+  showCopy.value = true
+}
+
+async function onCopied(result: { id: string }) {
+  await load()
+  // 跳新库详情——顶部引导条驱动选范式（next_step_hint 语义）
+  router.push(`/kb/${result.id}`)
 }
 
 async function mine(kb: KbSummary) {

@@ -44,6 +44,8 @@ export interface KbSummary {
   document_count: number
   /** 软删态（仅 site-admin 已删库清单返回）；2026-09-16 删除体系存量善后用 */
   deleted_at?: string | null
+  /** 拷贝库溯源（v1.1：仅 GET /api/kb/{id} 详情下发，列表不含）。 */
+  metadata_json?: { copy_source?: KbCopySource } | null
 }
 
 export interface KbDetail {
@@ -60,6 +62,8 @@ export interface KbDetail {
   deleted_at: string | null
   created_at: string
   updated_at: string
+  /** 拷贝库溯源（v1.1：metadata_json.copy_source；非拷贝库为空）。 */
+  metadata_json?: { copy_source?: KbCopySource } | null
   /** 批次4 readiness 四档（后端纯查询派生；环境异常时为 null，不阻塞详情）。 */
   readiness?: KbReadiness | null
 }
@@ -130,6 +134,38 @@ export interface KbCreateBody {
   name: string
   visibility: KbVisibility
   description?: string | null
+}
+
+/** v1.1 整库拷贝：溯源（新库 metadata_json.copy_source）。 */
+export interface KbCopySource {
+  kb_id: string
+  kb_name: string
+  copied_at: string
+}
+
+/** v1.1 整库拷贝：拷贝统计（血缘 links 数 = 有快照映射的文档数）。 */
+export interface KbCopyStats {
+  documents: number
+  folders: number
+  linked_snapshots: number
+}
+
+/** POST /api/kb/{id}/copy 的 201 响应（KbDetail + 拷贝附加字段）。 */
+export interface KbCopyResult {
+  id: string
+  domain: string
+  name: string
+  description: string | null
+  owner_id: string
+  visibility: KbVisibility
+  status: KbStatus
+  mining_workflow_id: string | null
+  created_at: string
+  copy_source: KbCopySource
+  copy_stats: KbCopyStats
+  /** 前端引导信号：select_mining_paradigm = 先选范式再挖掘。 */
+  next_step_hint?: 'select_mining_paradigm'
+  readiness?: KbReadiness | null
 }
 
 export interface KbUpdateBody {

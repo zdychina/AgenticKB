@@ -1,6 +1,20 @@
 {
-  "current": "1.1.15",
+  "current": "1.1.16",
   "releases": [
+    {
+      "version": "1.1.16",
+      "released_at": "2026-10-23",
+      "title": "知识库整库拷贝：快照血缘共享（备份/沙箱试验/模板分发）",
+      "changes": [
+        "整库拷贝端到端（设计 docs/kb-copy-design.md v1.1）：新端点 POST /api/kb/{kb_id}/copy——同步单事务完成新库+目录树+全部 active 文档身份行+快照血缘 links；文档对象字节零复制（新行共享源 storage_object_id，MinIO 不动，purge 按全局引用计数天然安全）；不建 Build——拷完文档均为 uploaded、不可检索，新库自选挖掘范式后触发挖掘，指纹命中（同域+同 raw_hash+同范式指纹）自动复用既有快照的解析与向量资产（零 LLM 重嵌），范式失配则全量重算（真实 LLM 成本，UI 静态提示引导选与源相同范式）",
+        "拷贝语义拍板（v1.0→v1.1 修订）：只共享快照血缘，不做\"即拷即用\"（不直建 Build、不占域发布锁、不触发任何检索就绪）——links 是血缘不是可见性也不是保护；新库 mining_workflow_id/default_paradigm_id=NULL（范式不复制）、成员不复制、知识制品不复制；名称缺省派生 <源名>-副本-YYYYMMDD（≤80 字符自动截断源名），可选覆盖 visibility/description",
+        "权限与防放大：read 即可拷（成员拷他人 private 库、任何人拷 public 库都合法——副本 owner=操作者）；可见性防放大规则——副本设 public 仅限源库 owner/站点管理员（显式请求越权 403，继承 public 静默降级 private），防止把他人私有知识域内公开；源库不可见一律 404（不泄露存在性）；未绑域 403；同名 409（唯一索引兜底+并发双击防护）；空库/超 5000 文档 422（同步事务上限，提示走导出导入）",
+        "并发安全：源库行 FOR SHARE + 事务内 active 复核（拷贝期间源库不被并发硬删，与 purge 的 FOR UPDATE 互斥），锁序 knowledge_bases→kb_users 与 transfer_owner 一致；目录树 parents-first 重映射，document_key 同域新库内无冲突；副本文档 created_at/content_updated_at=now（新行时间起点），modified_at（文件 mtime 语义）同源保留",
+        "前端体验：列表卡片「⋯」菜单常驻化新增「拷贝」入口（改名/删除仍按写权限分级）；拷贝对话框预填派生名/源描述，非 owner 可见性预锁 private；201 后跳新库详情；详情页「拷贝自」徽标（metadata_json.copy_source 溯源）+ 范式未选时常驻引导条直达挖掘 tab；快照血缘统计（documents/folders/linked_snapshots）随响应展示",
+        "零 DDL：不新增任何迁移（复用既有表结构，metadata_json 记录 copy_source）；全链验证——后端 kb 测试套件改动前后零回归，前端 vue-tsc/vitest 556 例/vite build 全绿；新增 test_copy_service.py 16 例（血缘形状/防放大/权限矩阵/名称派生/闸门/软删排除/源库删除隔离/路由错误映射）",
+        "升级注意：本地开发机无 PostgreSQL/Docker，PG 门控验收例（KB_RUN_POSTGRES_ACCEPTANCE=1 的 test_copy_service.py 集成链）与首挖复用/回收存活端到端（设计 §8 验收清单 1-7）需在内网验收环境随真库预演执行后再放量"
+      ]
+    },
     {
       "version": "1.1.15",
       "released_at": "2026-10-19",

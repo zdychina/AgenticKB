@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AppLayout: typeof import('./src/components/layout/AppLayout.vue')['default']
+    ArtifactCellEditor: typeof import('./src/components/artifacts/ArtifactCellEditor.vue')['default']
     ArtifactImportWizard: typeof import('./src/components/artifacts/ArtifactImportWizard.vue')['default']
     ArtifactMembersPanel: typeof import('./src/components/artifacts/ArtifactMembersPanel.vue')['default']
     ArtifactPublishDialog: typeof import('./src/components/artifacts/ArtifactPublishDialog.vue')['default']
@@ -33,6 +34,7 @@ declare module 'vue' {
     ElCol: typeof import('element-plus/es')['ElCol']
     ElCollapse: typeof import('element-plus/es')['ElCollapse']
     ElCollapseItem: typeof import('element-plus/es')['ElCollapseItem']
+    ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElDescriptions: typeof import('element-plus/es')['ElDescriptions']
     ElDescriptionsItem: typeof import('element-plus/es')['ElDescriptionsItem']
     ElDialog: typeof import('element-plus/es')['ElDialog']
@@ -50,6 +52,7 @@ declare module 'vue' {
     ElOption: typeof import('element-plus/es')['ElOption']
     ElPagination: typeof import('element-plus/es')['ElPagination']
     ElProgress: typeof import('element-plus/es')['ElProgress']
+    ElRadio: typeof import('element-plus/es')['ElRadio']
     ElRadioButton: typeof import('element-plus/es')['ElRadioButton']
     ElRadioGroup: typeof import('element-plus/es')['ElRadioGroup']
     ElRow: typeof import('element-plus/es')['ElRow']
@@ -67,6 +70,7 @@ declare module 'vue' {
     Header: typeof import('./src/components/layout/Header.vue')['default']
     JsonSchemaParamForm: typeof import('./src/components/workflow/JsonSchemaParamForm.vue')['default']
     KbCard: typeof import('./src/components/dashboard/KbCard.vue')['default']
+    KbCopyDialog: typeof import('./src/components/kb/KbCopyDialog.vue')['default']
     KbCreateDialog: typeof import('./src/components/kb/KbCreateDialog.vue')['default']
     KbFileManager: typeof import('./src/components/kb/KbFileManager.vue')['default']
     KbMembersPanel: typeof import('./src/components/kb/KbMembersPanel.vue')['default']

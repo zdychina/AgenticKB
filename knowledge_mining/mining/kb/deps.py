@@ -15,6 +15,12 @@ async def get_kb_service(request: Request) -> KbService:
     return KbService(KbDB(request.app.state.pg_pool))
 
 
+async def get_copy_service(request: Request) -> "Any":
+    """整库拷贝（v1.1 快照血缘共享，docs/kb-copy-design.md）."""
+    from knowledge_mining.mining.kb.services.copy_service import CopyService
+    return CopyService(KbDB(request.app.state.pg_pool))
+
+
 async def get_document_service(request: Request) -> DocumentService:
     from knowledge_mining.mining.kb.services.document_service import DocumentService
     from knowledge_mining.mining.file_management.repositories_pg import (

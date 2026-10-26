@@ -12,7 +12,7 @@ import type {
   DeletedKbRow, KbPurgeTask,
   KbOverview, KbRunRecord, KbStats, KbSummary, KbUpdateBody, KbUserCandidate,
   McpKeyCreated, McpKeyItem, McpKeyRotateResult, McpToolMeta,
-  DocumentKnowledge,
+  DocumentKnowledge, KbCopyResult, KbVisibility,
 } from '@/types/kb'
 
 export interface KbQualityReport {
@@ -85,6 +85,20 @@ export function useKbApi() {
     async createKb(body: KbCreateBody): Promise<KbDetail> {
       const { data } = await client.post('/api/kb', body)
       return extractOne<KbDetail>(data)
+    },
+
+    /**
+     * 整库拷贝（v1.1 快照血缘共享，docs/kb-copy-design.md）：同步单事务拷
+     * 文件+目录树+快照 links；对象字节与快照资产同源共享。拷完文档均为
+     * uploaded、**不可检索**——需自选挖掘范式触发 /mine（选与源库相同范式
+     * 可指纹复用，零 LLM 重嵌）。响应附 copy_source/copy_stats/next_step_hint。
+     */
+    async copyKb(
+      kbId: string,
+      body?: { new_name?: string; visibility?: KbVisibility; description?: string | null },
+    ): Promise<KbCopyResult> {
+      const { data } = await client.post(`/api/kb/${kbId}/copy`, body ?? {})
+      return extractOne<KbCopyResult>(data)
     },
 
     async getKb(kbId: string): Promise<KbDetail> {
