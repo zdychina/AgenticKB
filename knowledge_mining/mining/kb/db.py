@@ -3062,21 +3062,24 @@ WITH latest AS (
                 folder_rows = [dict(r) for r in await cur.fetchall()]
                 folder_map = {r["id"]: _new_id() for r in folder_rows}
                 if folder_rows:
-                    await conn.executemany(
-                        """INSERT INTO kb_folders
-                             (id, kb_id, parent_id, name, path, created_at, created_by)
-                           VALUES (%(id)s, %(kb)s, %(p)s, %(n)s, %(path)s, %(t)s, %(cb)s)""",
-                        [
-                            {
-                                "id": folder_map[r["id"]], "kb": new_kb_id,
-                                "p": folder_map[r["parent_id"]]
-                                     if r["parent_id"] is not None else None,
-                                "n": r["name"], "path": r["path"], "t": now,
-                                "cb": operator_id,
-                            }
-                            for r in folder_rows
-                        ],
-                    )
+                    # executemany 是 cursor 的方法（psycopg3 的 AsyncConnection
+                    # 没有 executemany——上线首拷即 500 的原因）；3.1+ 走 pipeline 批量。
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            """INSERT INTO kb_folders
+                                 (id, kb_id, parent_id, name, path, created_at, created_by)
+                               VALUES (%(id)s, %(kb)s, %(p)s, %(n)s, %(path)s, %(t)s, %(cb)s)""",
+                            [
+                                {
+                                    "id": folder_map[r["id"]], "kb": new_kb_id,
+                                    "p": folder_map[r["parent_id"]]
+                                         if r["parent_id"] is not None else None,
+                                    "n": r["name"], "path": r["path"], "t": now,
+                                    "cb": operator_id,
+                                }
+                                for r in folder_rows
+                            ],
+                        )
 
                 # 3. 文档批量拷贝：新 document_id + 新 kb_id（document_key 在
                 #    (kb_id, document_key) 唯一约束下原样安全）；对象指针/内容身份
@@ -3096,35 +3099,36 @@ WITH latest AS (
                 doc_rows = [dict(r) for r in await cur.fetchall()]
                 doc_map = {r["id"]: _new_id() for r in doc_rows}
                 if doc_rows:
-                    await conn.executemany(
-                        """INSERT INTO asset_documents
-                             (id, domain, document_key, document_name, document_type,
-                              metadata_json, created_at, kb_id, directory_path, owner_id,
-                              file_size, modified_at, storage_object_id, source_raw_hash,
-                              content_revision, content_updated_at, folder_id)
-                           VALUES
-                             (%(id)s, %(dom)s, %(k)s, %(n)s, %(t)s,
-                              %(meta)s::jsonb, %(t1)s, %(kb)s, %(dp)s, %(own)s,
-                              %(fs)s, %(ma)s, %(so)s, %(hash)s,
-                              %(rev)s, %(t2)s, %(folder)s)""",
-                        [
-                            {
-                                "id": doc_map[r["id"]], "dom": r["domain"],
-                                "k": r["document_key"], "n": r["document_name"],
-                                "t": r["document_type"],
-                                "meta": r["metadata_json"] or "{}",
-                                "t1": now, "t2": now,
-                                "kb": new_kb_id, "dp": r["directory_path"],
-                                "own": operator_id, "fs": r["file_size"],
-                                "ma": r["modified_at"], "so": r["storage_object_id"],
-                                "hash": r["source_raw_hash"],
-                                "rev": r["content_revision"],
-                                "folder": folder_map[r["folder_id"]]
-                                          if r["folder_id"] is not None else None,
-                            }
-                            for r in doc_rows
-                        ],
-                    )
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            """INSERT INTO asset_documents
+                                 (id, domain, document_key, document_name, document_type,
+                                  metadata_json, created_at, kb_id, directory_path, owner_id,
+                                  file_size, modified_at, storage_object_id, source_raw_hash,
+                                  content_revision, content_updated_at, folder_id)
+                               VALUES
+                                 (%(id)s, %(dom)s, %(k)s, %(n)s, %(t)s,
+                                  %(meta)s::jsonb, %(t1)s, %(kb)s, %(dp)s, %(own)s,
+                                  %(fs)s, %(ma)s, %(so)s, %(hash)s,
+                                  %(rev)s, %(t2)s, %(folder)s)""",
+                            [
+                                {
+                                    "id": doc_map[r["id"]], "dom": r["domain"],
+                                    "k": r["document_key"], "n": r["document_name"],
+                                    "t": r["document_type"],
+                                    "meta": r["metadata_json"] or "{}",
+                                    "t1": now, "t2": now,
+                                    "kb": new_kb_id, "dp": r["directory_path"],
+                                    "own": operator_id, "fs": r["file_size"],
+                                    "ma": r["modified_at"], "so": r["storage_object_id"],
+                                    "hash": r["source_raw_hash"],
+                                    "rev": r["content_revision"],
+                                    "folder": folder_map[r["folder_id"]]
+                                              if r["folder_id"] is not None else None,
+                                }
+                                for r in doc_rows
+                            ],
+                        )
 
                 # 4. 快照血缘：仅 §2 有 build 映射的文档建 link（复用
                 #    get_current_serving_snapshot 的「先 DISTINCT ON 取最新 build 行、
@@ -3167,27 +3171,28 @@ WITH latest AS (
                     r for r in latest_link.values() if r["document_id"] in doc_map
                 ]
                 if link_rows:
-                    await conn.executemany(
-                        """INSERT INTO asset_document_snapshot_links
-                             (id, document_id, document_snapshot_id, source_batch_id,
-                              relative_path, source_uri, title, linked_at,
-                              source_storage_object_id, source_content_revision)
-                           VALUES
-                             (%(id)s, %(doc)s, %(snap)s, NULL,
-                              %(rp)s, %(su)s, %(title)s, %(t)s,
-                              %(so)s, %(rev)s)""",
-                        [
-                            {
-                                "id": _new_id(), "doc": doc_map[r["document_id"]],
-                                "snap": r["document_snapshot_id"],
-                                "rp": r["relative_path"], "su": r["source_uri"],
-                                "title": r["title"], "t": now,
-                                "so": r["source_storage_object_id"],
-                                "rev": r["source_content_revision"],
-                            }
-                            for r in link_rows
-                        ],
-                    )
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            """INSERT INTO asset_document_snapshot_links
+                                 (id, document_id, document_snapshot_id, source_batch_id,
+                                  relative_path, source_uri, title, linked_at,
+                                  source_storage_object_id, source_content_revision)
+                               VALUES
+                                 (%(id)s, %(doc)s, %(snap)s, NULL,
+                                  %(rp)s, %(su)s, %(title)s, %(t)s,
+                                  %(so)s, %(rev)s)""",
+                            [
+                                {
+                                    "id": _new_id(), "doc": doc_map[r["document_id"]],
+                                    "snap": r["document_snapshot_id"],
+                                    "rp": r["relative_path"], "su": r["source_uri"],
+                                    "title": r["title"], "t": now,
+                                    "so": r["source_storage_object_id"],
+                                    "rev": r["source_content_revision"],
+                                }
+                                for r in link_rows
+                            ],
+                        )
 
                 return {
                     "kb": new_kb,

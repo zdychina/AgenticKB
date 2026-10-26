@@ -1,6 +1,17 @@
 {
-  "current": "1.1.17",
+  "current": "1.1.18",
   "releases": [
+    {
+      "version": "1.1.18",
+      "released_at": "2026-10-26",
+      "title": "整库拷贝 500 修复：copy_kb 三处 conn.executemany 误用（psycopg3 AsyncConnection 无此方法）",
+      "changes": [
+        "病象：POST /api/kb/{id}/copy 首拷即 500——AttributeError: 'AsyncConnection' object has no attribute 'executemany'（kb/db.py copy_kb 目录树/文档批量/快照血缘三处批量插入全中）",
+        "病根：psycopg3 的 executemany 是 cursor 方法（async with conn.cursor() as cur: await cur.executemany(...)），AsyncConnection 只有 execute 便捷方法；1.1.16 开发机无真库，PG 门控验收例（KB_RUN_POSTGRES_ACCEPTANCE=1）未跑，纯 fake-db 单测探不到 driver 层 API 误用，上线首次真实拷贝即暴露——changelog 预警的\"验收待内网真库预演\"一步成谶",
+        "修复：三处统一改为 cursor.executemany（psycopg 3.1+ 内部走 pipeline 批量，性能不劣化）；批量参数与 SQL 原样未动",
+        "验收：部署后在 39.96.13.112 用生产链路原样复现拷贝请求（同 KB 同域）确认 201 + 统计字段；非 PG 单测 2 例通过"
+      ]
+    },
     {
       "version": "1.1.17",
       "released_at": "2026-10-26",
