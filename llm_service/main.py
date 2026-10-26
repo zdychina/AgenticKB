@@ -192,6 +192,7 @@ def create_app(
                     concurrency=worker_concurrency,
                     poll_interval=dig(cfg, "worker", "poll_interval"),
                     llm_service=svc,
+                    default_embedding_dimensions=_embedding_dimensions,
                 )
                 await worker.start()
                 logger.info(

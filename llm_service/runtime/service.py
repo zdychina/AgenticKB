@@ -460,6 +460,11 @@ class LLMService:
         priority: int = 100,
     ) -> str:
         actual_model = model or getattr(self._model_provider, "embedding_model", None) or dig(self._config, "embedding", "model")
+        # dimensions 必须在提交侧解析（与 ModelService 同步端点对齐）：调用方
+        # （mining）不传时落配置默认值。None 直通会让 provider 请求不带
+        # dimensions 参数——智谱 embedding-3 默认 2048 维，与库列 vector(1024)
+        # 不匹配，向量化入库报 expected 1024 dimensions, not 2048。
+        actual_dimensions = dimensions if dimensions is not None else dig(self._config, "embedding", "dimensions")
 
         return await self._submit_with_idempotency(
             idempotency_key=idempotency_key,
@@ -470,7 +475,7 @@ class LLMService:
             request_params=(
                 "embedding", actual_model, None,
                 "[]",
-                json.dumps({"texts": texts, "model": actual_model, "dimensions": dimensions}),
+                json.dumps({"texts": texts, "model": actual_model, "dimensions": actual_dimensions}),
                 "{}", "embedding", "{}",
             ),
             event_message="embedding task submitted",

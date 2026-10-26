@@ -1,6 +1,19 @@
 {
-  "current": "1.1.16",
+  "current": "1.1.17",
   "releases": [
+    {
+      "version": "1.1.17",
+      "released_at": "2026-10-26",
+      "title": "挖掘向量化维度失配修复：异步 embedding 在提交侧解析 dimensions（入库报 expected 1024 dimensions, not 2048）",
+      "changes": [
+        "病根：异步 embedding 链路（llm_call_mode=async）里 mining 提交任务不传 dimensions（knowledge_mining/mining/infra/embedding.py），llm_service.submit_embedding 把 None 原样落进任务 input、worker 又原样透传 provider——请求智谱 API 不带 dimensions 参数，embedding-3 按默认 2048 维返回，而库列/索引为 vector(1024)，pgvector 入库报 expected 1024 dimensions, not 2048，快照停在 embedding_incomplete、Build 全批拒绝；同步端点（ModelService）一直有默认值兜底返回 1024，故同步路径无恙、仅异步中毒",
+        "双层修复：①提交侧（llm_service/runtime/service.py submit_embedding）dimensions=None 时解析配置 embedding.dimensions 默认值，与 ModelService 同步端点对齐，且解析后的值进入幂等请求指纹（配置翻维度自动新建任务，不吃旧缓存向量）；②worker 侧（runtime/worker.py）构造注入 default_embedding_dimensions，执行时对 input 里仍为 None 的存量队列任务兜底——补丁部署前已入队的坏任务也按站点契约维度执行",
+        "校验随之激活：_validate_embedding_result 只在 dimensions 非 None 时比对实际维度——修复前 None 直通=2048 坏向量无校验放行直达入库；修复后解析出 1024 即启用比对，provider 返回维度不符在 llm_service 侧 fail→重试→dead_letter，不再把坏结果标记 succeeded 毒化幂等缓存",
+        "性质：存量潜伏缺陷，非 1.1.13–1.1.16 回归（1.1.12 的 submit_embedding 同形）；此前部署机从未实际跑通过异步挖掘向量化，1.1.16 部署后首次真实使用即暴露",
+        "测试：新增 ll_service/tests/test_submit_embedding_dimensions.py（不传→落配置默认 1024；显式 512 不被覆盖）+ test_worker_embedding_validation.py 追加 3 例（None+默认维度兜底生效并透传 provider；兜底后维度不符 fail 不放行；无默认时行为与修复前一致）；llm_service 全量 101 通过 5 跳过",
+        "部署：增量包同步（--code-only，纯 Python 变更，jar/前端不动）——39.96.13.112 从 1.1.16 升 1.1.17"
+      ]
+    },
     {
       "version": "1.1.16",
       "released_at": "2026-10-23",

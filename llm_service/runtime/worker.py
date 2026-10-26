@@ -65,6 +65,7 @@ class Worker:
         concurrency: int = 2,
         poll_interval: float = 1.0,
         llm_service: LLMService | None = None,
+        default_embedding_dimensions: int | None = None,
     ):
         self._db = db
         self._mgr = task_manager
@@ -75,6 +76,9 @@ class Worker:
         self._concurrency = concurrency
         self._poll_interval = poll_interval
         self._svc = llm_service
+        # 兜底用：提交侧已解析 dimensions（service.submit_embedding），
+        # 这里只救补丁前提交、input 里仍是 None 的存量队列任务。
+        self._default_embedding_dimensions = default_embedding_dimensions
         self._running = False
         self._tasks: list[asyncio.Task] = []
         self._active_task_ids: set[str] = set()
@@ -196,6 +200,10 @@ class Worker:
         texts = input_data.get("texts", [])
         model = input_data.get("model")
         dimensions = input_data.get("dimensions")
+        if dimensions is None:
+            # 存量任务兜底：老提交链不带 dimensions（智谱默认 2048 维），
+            # 与库列维度不符会入库失败。落配置默认，保证按站点契约执行。
+            dimensions = self._default_embedding_dimensions
         request_id = req["id"]
 
         task_row = await self._db.fetchone("SELECT attempt_count, max_attempts FROM agent_llm_tasks WHERE id = %s", (task_id,))
