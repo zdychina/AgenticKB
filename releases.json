@@ -12,7 +12,8 @@
         "并发安全：源库行 FOR SHARE + 事务内 active 复核（拷贝期间源库不被并发硬删，与 purge 的 FOR UPDATE 互斥），锁序 knowledge_bases→kb_users 与 transfer_owner 一致；目录树 parents-first 重映射，document_key 同域新库内无冲突；副本文档 created_at/content_updated_at=now（新行时间起点），modified_at（文件 mtime 语义）同源保留",
         "前端体验：列表卡片「⋯」菜单常驻化新增「拷贝」入口（改名/删除仍按写权限分级）；拷贝对话框预填派生名/源描述，非 owner 可见性预锁 private；201 后跳新库详情；详情页「拷贝自」徽标（metadata_json.copy_source 溯源）+ 范式未选时常驻引导条直达挖掘 tab；快照血缘统计（documents/folders/linked_snapshots）随响应展示",
         "零 DDL：不新增任何迁移（复用既有表结构，metadata_json 记录 copy_source）；全链验证——后端 kb 测试套件改动前后零回归，前端 vue-tsc/vitest 556 例/vite build 全绿；新增 test_copy_service.py 16 例（血缘形状/防放大/权限矩阵/名称派生/闸门/软删排除/源库删除隔离/路由错误映射）",
-        "升级注意：本地开发机无 PostgreSQL/Docker，PG 门控验收例（KB_RUN_POSTGRES_ACCEPTANCE=1 的 test_copy_service.py 集成链）与首挖复用/回收存活端到端（设计 §8 验收清单 1-7）需在内网验收环境随真库预演执行后再放量"
+        "升级注意：本地开发机无 PostgreSQL/Docker，PG 门控验收例（KB_RUN_POSTGRES_ACCEPTANCE=1 的 test_copy_service.py 集成链）与首挖复用/回收存活端到端（设计 §8 验收清单 1-7）需在内网验收环境随真库预演执行后再放量",
+        "1.1.16 部署资产包（sync-20261026-104902.tar.gz，33MB，随 v1.1.16 tag）：runtime jar 吸取 1.1.15 混合产物教训按纯源码 clean 构建，打包前程序化校验 mapper 含定版检索 SQL 形态（AssetRetrievalUnitV2Mapper.xml candidateBudget≥2）且 force_custom_plan 会话级设置类存在（ServingBeans/DomainPoolManager），jar md5=24b87ea0e311a66709541aab4a0239b5；包内 releases.json 版本与 sha256 校验通过，拷贝功能代码/测试/新前端均在包内抽查确认；零迁移零 DDL——apply 为纯代码同步+按需重启（mining/control 重启，前端即时生效，数据库 plan 秒过）。镜像同步推送 ghcr.io/zdychina/coremasterkb-app（标签 v1.1.16/latest/sha-9fceabb，fork 仓库经 GHCR_TOKEN classic PAT 推送）"
       ]
     },
     {
