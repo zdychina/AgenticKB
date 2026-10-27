@@ -71,6 +71,8 @@
                 <el-dropdown-item @click="copy(kb)">
                   <el-icon><CopyDocument /></el-icon>拷贝
                 </el-dropdown-item>
+                <!-- 整库导出下载：read 即可导（copy 超 5000 文档的互补通道） -->
+                <el-dropdown-item @click="exportZip(kb)">导出下载</el-dropdown-item>
                 <el-dropdown-item v-if="canWrite(kb)" @click="rename(kb)">改名</el-dropdown-item>
                 <el-dropdown-item v-if="canManageLifecycle(kb)" @click="remove(kb)" divided>删除知识库</el-dropdown-item>
               </el-dropdown-menu>
@@ -125,6 +127,7 @@
 
     <KbCreateDialog v-model="showCreate" :domain="domainStore.currentDomain" @created="load" />
     <KbCopyDialog v-model="showCopy" :kb="copyTarget" @copied="onCopied" />
+    <KbExportDialog v-model="showExport" :kb="exportTarget" />
   </div>
 </template>
 
@@ -142,6 +145,7 @@ import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
 import KbCreateDialog from '@/components/kb/KbCreateDialog.vue'
 import KbCopyDialog from '@/components/kb/KbCopyDialog.vue'
+import KbExportDialog from '@/components/kb/KbExportDialog.vue'
 import {
   canManageKbLifecycle, canWriteKb, roleLabel, roleTagType,
   visibilityLabel, visibilityTagType,
@@ -158,6 +162,8 @@ const loadError = ref('')
 const showCreate = ref(false)
 const showCopy = ref(false)
 const copyTarget = ref<KbSummary | null>(null)
+const showExport = ref(false)
+const exportTarget = ref<KbSummary | null>(null)
 const miningId = ref<string | null>(null)
 let loadGeneration = 0
 
@@ -281,6 +287,12 @@ async function onCopied(result: { id: string }) {
   await load()
   // 跳新库详情——顶部引导条驱动选范式（next_step_hint 语义）
   router.push(`/kb/${result.id}`)
+}
+
+/** 整库导出下载（copy 超 5000 文档的互补通道）：read 即可导。 */
+function exportZip(kb: KbSummary) {
+  exportTarget.value = kb
+  showExport.value = true
 }
 
 async function mine(kb: KbSummary) {

@@ -71,3 +71,19 @@ async def get_artifact_import_service(request: Request) -> "Any":
         ArtifactImportService,
     )
     return ArtifactImportService(await get_artifact_db(request))
+
+
+async def get_export_service(request: Request) -> "Any":
+    """整库导出（打包下载通道）：KbDB + ExportDB + 对象存储 + 导出配置."""
+    from knowledge_mining.mining.infra.export_config import ExportConfig
+    from knowledge_mining.mining.kb.db_export import ExportDB
+    from knowledge_mining.mining.kb.services.export_service import ExportService
+
+    return ExportService(
+        KbDB(request.app.state.pg_pool),
+        ExportDB(request.app.state.pg_pool),
+        object_store=request.app.state.object_store,
+        object_store_config=request.app.state.object_store_config,
+        config=ExportConfig(),
+        pool=request.app.state.pg_pool,
+    )

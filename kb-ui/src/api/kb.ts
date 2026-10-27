@@ -13,6 +13,7 @@ import type {
   KbOverview, KbRunRecord, KbStats, KbSummary, KbUpdateBody, KbUserCandidate,
   McpKeyCreated, McpKeyItem, McpKeyRotateResult, McpToolMeta,
   DocumentKnowledge, KbCopyResult, KbVisibility,
+  KbExportDownloadUrl, KbExportTask,
 } from '@/types/kb'
 
 export interface KbQualityReport {
@@ -99,6 +100,41 @@ export function useKbApi() {
     ): Promise<KbCopyResult> {
       const { data } = await client.post(`/api/kb/${kbId}/copy`, body ?? {})
       return extractOne<KbCopyResult>(data)
+    },
+
+    // ── 整库导出（打包下载通道：copy 超 5000 文档走这里）──
+    /**
+     * 创建整库导出任务（202 秒回）：后台打包原始文档 + manifest.json 为
+     * STORED zip 传对象存储。同库已有排队/运行中任务时幂等返回该任务
+     * （already_started=true）。大库（数 GB+）打包可能耗时小时级，进度走
+     * listExportTasks 轮询。
+     */
+    async createExportTask(kbId: string): Promise<KbExportTask> {
+      const { data } = await client.post(`/api/kb/${kbId}/export`)
+      return data
+    },
+    /** 本库导出任务列表（域管理员看全部；普通用户只看自己发起的）。 */
+    async listExportTasks(kbId: string): Promise<KbExportTask[]> {
+      const { data } = await client.get(`/api/kb/${kbId}/export-tasks`)
+      return (data.tasks ?? []) as KbExportTask[]
+    },
+    async getExportTask(taskId: string): Promise<KbExportTask> {
+      const { data } = await client.get(`/api/kb/export-tasks/${taskId}`)
+      return data
+    },
+    /**
+     * 现签 presign 下载 URL（每次调用新签，仅 succeeded 且未过期）。
+     * 下载必须 window.open(url) 浏览器直连对象存储——大包走代理会撞网关
+     * 300s 读超时，直连还天然支持 Range 断点续传。
+     */
+    async getExportDownloadUrl(taskId: string): Promise<KbExportDownloadUrl> {
+      const { data } = await client.get(`/api/kb/export-tasks/${taskId}/download-url`)
+      return data
+    },
+    /** 运行中 → 请求取消（202）；终态 → 删产物对象 + 删任务记录（200）。 */
+    async deleteExportTask(taskId: string): Promise<{ cancelled?: boolean; deleted?: boolean; task_id?: string }> {
+      const { data } = await client.delete(`/api/kb/export-tasks/${taskId}`)
+      return data
     },
 
     async getKb(kbId: string): Promise<KbDetail> {

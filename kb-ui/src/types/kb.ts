@@ -471,3 +471,45 @@ export interface KbPurgeTask {
   created_at: string
   updated_at: string
 }
+
+
+/** 整库导出任务进度（progress_json；phase: queued/prepare/packaging/uploading/finalize） */
+export interface KbExportProgress {
+  total_docs?: number
+  packed_docs?: number
+  packed_bytes?: number
+  warnings_count?: number
+  zip_size?: number
+  zip_sha256?: string
+}
+
+/** 整库导出任务（打包下载通道：copy 超 5000 文档走这里） */
+export interface KbExportTask {
+  id: string
+  kb_id: string
+  kb_name: string
+  domain: string
+  status: 'queued' | 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled' | 'expired'
+  phase: string
+  progress: KbExportProgress
+  requested_by: string
+  error: string | null
+  artifact_size: number | null
+  artifact_sha256: string | null
+  doc_count: number | null
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+  /** 幂等标记：同库已有活跃任务时直接返回该任务（POST 202 响应附带） */
+  already_started?: boolean
+}
+
+/** 导出产物现签下载凭据（download-url 端点；URL 不落库每次新签） */
+export interface KbExportDownloadUrl {
+  url: string
+  expires_in: number
+  filename: string
+  size: number | null
+  sha256: string | null
+  doc_count: number | null
+}

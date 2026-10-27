@@ -10,7 +10,8 @@ CURRENT_SCHEMA_VERSION = "2026.09.user-lifecycle-retrieval-v1"
 # 1.1.15 资产包替换：加 009（v2 向量 HNSW 索引）后刷新。
 # 2026-10-20 三次替换：009 修订（串行建索引，绕开 PG 容器 64MB /dev/shm——
 # 并行建索引的共享排序区按 maintenance_work_mem 申请动态共享内存会 ENOSPC）。
-CURRENT_SCHEMA_CHECKSUM = "11742f3e4fb2cd49ac839ddade1ce1ff41563554441b4c472596245b67de78c6"
+# 2026-10-26 整库导出：加 010（kb_export_tasks）后刷新。
+CURRENT_SCHEMA_CHECKSUM = "2a7e78a03b90bb79f724a80f4594762c94b5a418b7e5e76ee7ced17ecf88c6d4"
 SCHEMA_MARKER_ID = f"schema/{CURRENT_SCHEMA_VERSION}"
 MIGRATION_LEDGER_TABLE = "cmkb_schema_migrations"
 LEGACY_COMPAT_TABLES: tuple[str, ...] = ("mcp_open_kbs", "mcp_access")
@@ -44,6 +45,7 @@ FORMAL_TABLES: frozenset[str] = frozenset({
     "mcp_key_open_artifacts",
     "kb_document_refs",
     "kb_purge_tasks",
+    "kb_export_tasks",
     "asset_source_batches",
     "asset_storage_objects",
     "asset_documents",
@@ -103,6 +105,7 @@ PREVIOUS_RELEASE_TABLES: frozenset[str] = frozenset(
             "kb_table_columns",
             "kb_table_rows",
             "mcp_key_open_artifacts",
+            "kb_export_tasks",
         }
     )
     | {"serving_query_logs"}
@@ -139,5 +142,5 @@ RETIRED_TABLES: tuple[str, ...] = (
 if len(RETIRED_TABLES) != len(set(RETIRED_TABLES)):  # pragma: no cover - import guard
     raise RuntimeError("RETIRED_TABLES contains duplicates")
 
-if EXPECTED_FORMAL_TABLES != 60:  # pragma: no cover - import guard
-    raise RuntimeError("FORMAL_TABLES must contain exactly 60 names")
+if EXPECTED_FORMAL_TABLES != 61:  # pragma: no cover - import guard
+    raise RuntimeError("FORMAL_TABLES must contain exactly 61 names")

@@ -163,6 +163,11 @@ _KB_ARTIFACTS_DDL = (
 _KB_PURGE_TASKS_DDL = (
     _REPO_ROOT / "databases" / "kb" / "schemas" / "013_kb_purge_tasks.sql"
 )
+# KB 整库导出任务（018）：打包下载通道的任务进度表（自包含，链尾安全；
+# 存量库同文版本化迁移=core/20261026_010_kb_export_tasks）。
+_KB_EXPORT_TASKS_DDL = (
+    _REPO_ROOT / "databases" / "kb" / "schemas" / "018_kb_export_tasks.sql"
+)
 _WORKFLOW_CONTROL_DDL = _REPO_ROOT / "databases" / "mining_control" / "schemas" / "001_mining_workflow_postgresql.sql"
 
 
@@ -272,6 +277,8 @@ def domain_schema_paths() -> tuple[Path, ...]:
         _KNOWLEDGE_ACCESS_RECORD_PAYLOADS_DDL,
         # 61号表格知识制品：六张自包含表，紧跟 016（链尾）。
         _KB_ARTIFACTS_DDL,
+        # KB 整库导出任务表（018）：自包含，链尾。
+        _KB_EXPORT_TASKS_DDL,
     )
 
 

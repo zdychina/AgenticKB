@@ -35,8 +35,9 @@ public class ServingRuntimeSchemaInitializer implements DomainSchemaEnsurer {
     // fail-closed 校验拒绝就绪。
     // 1.1.15 资产包替换：加 009（v2 向量 HNSW 索引）后刷新。
     // 2026-10-20 三次替换：009 修订（串行建索引，绕开 PG 容器 64MB /dev/shm）。
+    // 2026-10-26 整库导出：加 010（kb_export_tasks）后刷新。
     private static final String EXPECTED_SCHEMA_CHECKSUM =
-            "11742f3e4fb2cd49ac839ddade1ce1ff41563554441b4c472596245b67de78c6";
+            "2a7e78a03b90bb79f724a80f4594762c94b5a418b7e5e76ee7ced17ecf88c6d4";
     private static final String EXPECTED_SCHEMA_MARKER =
             "schema/" + EXPECTED_SCHEMA_VERSION;
 

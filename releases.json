@@ -1,6 +1,20 @@
 {
-  "current": "1.1.18",
+  "current": "1.1.19",
   "releases": [
+    {
+      "version": "1.1.19",
+      "released_at": "2026-10-27",
+      "title": "知识库整库导出下载：原始文档 STORED ZIP64 打包 → 对象存储直链（copy 超 5000 文档的互补通道）",
+      "changes": [
+        "新表 kb_export_tasks（databases/kb/schemas/018 + 在线迁移 core/20261026_010，纯 CREATE IF NOT EXISTS 幺等）：状态机 queued/running/cancelling/succeeded/failed/cancelled/expired，TEXT ISO 时间列、无 FK，与 purge_tasks 同族；迁移登记链三处 checksum（manifest.yaml/contract.py guard 60→61/ServingRuntimeSchemaInitializer）已由守卫测试钉住",
+        "后端管线：POST /api/kb/{id}/export 202 秒回 → 后台 worker keyset 分批遍历文档（batch 500）→ 原始文件流式写入 STORED 不压缩 ZIP64 本地 .part → put_stream 直传 staging 桶（任务内固定 object_key=export/{kb_id}/{task_id}.zip，重跑覆盖=幂等）→ 下载走现签 presign 直连 MinIO（绕开网关 300s 读超时，天然 Range 断点续传，disposition 带中文保存名）",
+        "鲁棒性：单文档缺失/读失败降级 manifest.warnings 继续（不整单失败）；zip sha256 对最终包字节计算（打包器增量 sha 不含 zip 头，已修）；取消在 worker 启动前挂起时 2s shield 兜底落 cancelled；启动恢复（残留 .part 清理重入队）+ 每 6h sweep（过期产物删除标 expired + 24h 孤儿 .part 清理）",
+        "路由 /api/kb/export-tasks/{task_id} 字面量段先于 kb_router 的 /{kb_id} 动态段注册；MinIO 适配器向后兼容小改（tmp_dir 注入 uploads 卷、presign_get 带 filename disposition），fake/port 同步对齐",
+        "配置：mining.yaml 新增 export 段（enabled/bucket_class=staging/tmp_root=./uploads/_exports/批 500/保留 72h/presign 24h/并行 1）；ExportConfig 缺省与之逐项一致，远端 config 未同步也不阻断（本次发布已手工在 39.96.13.112 补齐该段）",
+        "前端：知识库卡片菜单新增「导出下载」→ KbExportDialog（任务表：状态/打包进度/产物大小+sha256 复制/发起时间；下载 window.open(presign) 绝不走 blob；运行中轮询 5s 可关窗后台继续）",
+        "测试：新增 29 例（packager 11：arcname 净化/防重/ZIP64/中文 UTF-8 flag/manifest 末尾/sha 对照；worker 5：对象+legacy+broken 打包/取消/恢复/sweep；service 13：权限闸门/幂等/下载冲突态/路由 202→succeeded→download-url→delete）；tests/kb 全量套件另发现 62 例陈旧断言 + 1 例 transfer 竞态测试钩子失效挂死（根因三处已定性，均为既有问题与本功能无关，另行修复）"
+      ]
+    },
     {
       "version": "1.1.18",
       "released_at": "2026-10-26",

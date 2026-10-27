@@ -293,13 +293,28 @@ async def test_invisible_source_404(async_pool):
         )
 
 
-async def test_unbound_operator_domain_not_bound(async_pool):
+async def test_unbound_operator_unified_404(async_pool):
+    """未绑定域的操作者：public 库也统一 404（不泄露存在性）。
+
+    51号批次1起 is_visible 本身要求 access_domain 绑定——未绑定用户在可见性
+    闸门即被挡，走不到建库资格检查（can_create_in_domain → DomainNotBound）；
+    DomainNotBound 经 copy_kb 仅剩"可见性复核与建库之间被解绑"的竞态路径
+    （db.copy_kb 事务内复核，译法见 copy_service.UserDeletionConflict 分支）。
+    另：55号守卫要求 member 至少保留一个域绑定——先补第二域再解绑 DOMAIN。
+    """
     db = KbDB(async_pool)
-    _, kb_id, *_ = await _seed_source_kb(async_pool, name=f"src-{_hex()[:8]}")
+    _, kb_id, *_ = await _seed_source_kb(
+        async_pool, name=f"src-{_hex()[:8]}", visibility="public",
+    )
     outsider = await db.upsert_user_by_username(f"o_{_hex()[:10]}")
-    # 撤掉默认域绑定（无自有 KB，可安全解绑）→ 403 domain_not_bound
+    async with async_pool.connection() as conn:
+        await conn.execute(
+            "INSERT INTO user_domains (user_id, domain) VALUES (%s, 'generic')"
+            " ON CONFLICT DO NOTHING",
+            [outsider["id"]],
+        )
     await db.unbind_domain(user_id=outsider["id"], domain=DOMAIN)
-    with pytest.raises(DomainNotBound):
+    with pytest.raises(NotFound):
         await CopyService(db).copy_kb(
             kb_id=kb_id, actor_id=outsider["id"], overrides={},
         )
