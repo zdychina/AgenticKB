@@ -388,9 +388,13 @@ class TestSixtyOneAcceptanceCases:
         assert r.status_code == 403
         assert await env.db.get_artifact(aid) is not None
 
+        # 硬删两级确认：在线制品必须先 deprecate（可恢复缓冲）再删，
+        # 直接删非 deprecated 会 409 artifact_not_deprecated
         env.holder["user"] = OWNER
+        r = await env.client.post(f"/api/artifacts/{aid}/deprecate")
+        assert r.status_code == 200, r.text
         r = await env.client.delete(f"/api/artifacts/{aid}")
-        assert r.status_code == 200
+        assert r.status_code == 200, r.text
         # fake 记账断言六表清理（kb_artifacts / members / revisions / batches /
         # columns / rows[rev0+历史]）
         assert aid not in env.db.artifacts
