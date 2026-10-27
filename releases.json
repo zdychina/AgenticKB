@@ -1,6 +1,20 @@
 {
-  "current": "1.1.19",
+  "current": "1.1.20",
   "releases": [
+    {
+      "version": "1.1.20",
+      "released_at": "2026-10-27",
+      "title": "导出直链浏览器不可达修复：presign URL 按公共入口改写 + nginx /object-store/ 反代 + expires 漏传修复",
+      "changes": [
+        "病象：整库导出任务 succeeded 后浏览器点下载失败——download-url 返回的是 http://minio:9000/...（docker 网络名，外部 DNS 解析不了）；服务器侧打包/上传/签名全部成功（日志无错）",
+        "修复一（URL 改写）：ObjectStoreConfig 新增 presign_public_base（storage.yaml object_store 段，空=不改写保持内网直连），_presign_blocking 签名后把 scheme://endpoint 前缀改写为该入口；签名含 host（X-Amz-SignedHeaders=host）但只重写前缀、查询串逐字节不动，MinIO 校验不受影响",
+        "修复二（反代入口）：容器 nginx 新增 location /object-store/ → proxy_pass http://minio:9000/，关键三件事：proxy_set_header Host minio:9000 原样转发（签名的 host，切不可用 $host）、proxy_buffering off 流式转发防大包落盘、3600s 读写超时匹配小时级下载；Range 头原样透传天然支持断点续传",
+        "修复三（expires 漏传，日志分析时顺带发现）：_presign_blocking 此前未把 expires_in_seconds 传给 SDK，恒为 SDK 默认 604800（7 天）而非配置的 86400——本次显式 timedelta(seconds=expires) 修正，presign_get/put 双侧",
+        "SDK 坑记录：minio-py presign 需要 bucket region——client 未显式传 region 时会发一次 GetBucketLocation 网络请求（生产可达无感，本地测试会挂）；单测显式 region='us-east-1' 钉死纯本地签名",
+        "测试：新增 tests/object_store/test_minio_presign_delivery.py 6 例（expires 进 URL/非 SDK 默认/disposition/PUT 侧/公共前缀改写签名逐字节一致/外来前缀防御性透传）；object_store + export packager + export service 全量 33 例通过",
+        "部署备注：docker/nginx.conf 为镜像内文件非挂载，容器内热补丁 + reload；远端 storage.yaml object_store 段手工追加 presign_public_base: http://39.96.13.112:8080/object-store（备份后编辑，apply 重启生效）"
+      ]
+    },
     {
       "version": "1.1.19",
       "released_at": "2026-10-27",

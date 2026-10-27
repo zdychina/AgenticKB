@@ -27,6 +27,7 @@ import hashlib
 import os
 import tempfile
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -95,6 +96,25 @@ def _extract_code(exc: BaseException) -> str | None:
 def _bucket_for(config: ObjectStoreConfig, artifact_class: str) -> str:
     """Bucket name for an artifact class (SRS §8.1): ``{prefix}{artifact_class}``."""
     return f"{config.bucket_prefix}{artifact_class}"
+
+
+def _presign_delivery_url(config: ObjectStoreConfig, url: str) -> str:
+    """把 presign URL 的 scheme://endpoint 前缀改写为浏览器可达的交付地址。
+
+    endpoint 通常是 docker 网络名（如 ``minio:9000``），浏览器解析不了；
+    ``presign_public_base`` 指到 nginx 反代入口（如
+    ``http://<公网>:8080/object-store``，代理保持 Host=endpoint，签名不受影响）。
+    未配置或前缀不匹配时原样返回。签名里的 host 仍是 endpoint——
+    反代必须 ``proxy_set_header Host <endpoint>`` 转发才能通过 MinIO 校验。
+    """
+    base = (config.presign_public_base or "").rstrip("/")
+    if not base:
+        return url
+    scheme = "https" if config.secure else "http"
+    internal = f"{scheme}://{config.endpoint}"
+    if url.startswith(internal):
+        return base + url[len(internal):]
+    return url
 
 
 class MinioObjectStore:
@@ -424,13 +444,19 @@ class MinioObjectStore:
                             f"filename*=UTF-8''{quote(filename)}"
                         )
                     }
-                return self._client.presigned_get_object(
+                url = self._client.presigned_get_object(
                     location.bucket,
                     location.object_key,
                     version_id=location.version_id,
                     response_headers=response_headers,
+                    expires=timedelta(seconds=expires),
                 )
-            return self._client.presigned_put_object(location.bucket, location.object_key)
+            else:
+                url = self._client.presigned_put_object(
+                    location.bucket, location.object_key,
+                    expires=timedelta(seconds=expires),
+                )
+            return _presign_delivery_url(self._config, url)
         except S3Error as exc:  # type: ignore[misc]
             raise _map_s3_error(exc) from exc
 
