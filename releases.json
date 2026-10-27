@@ -1,6 +1,19 @@
 {
-  "current": "1.1.20",
+  "current": "1.1.21",
   "releases": [
+    {
+      "version": "1.1.21",
+      "released_at": "2026-10-27",
+      "title": "测试修复暴露的三处产品缺陷：文档恢复失效（identity 丢 deleted_at）/并发解绑竞态漏 active 钥匙/ops usage KeyError 500",
+      "changes": [
+        "来源：修复 tests/kb 62 个陈旧失败用例时逐簇诊断，三处是真产品缺陷（其余为测试未跟上 47/51/55/57/58号契约）",
+        "缺陷一（文档恢复静默失效）：get_document_identity 的 SELECT 漏 d.deleted_at 列，restore() 读 doc.get('deleted_at') 恒为 None，恢复路径判「未删除」直接空过——补列即恢复功能回归修复",
+        "缺陷二（并发解绑竞态，55号守卫有洞）：_lock_user_domain_access_on_conn 把 EXISTS 域绑定检查并进 FOR SHARE 同一条 SQL，被 unbind_domain 的 FOR UPDATE 阻塞唤醒后 EvalPlanQual 重查仍按语句起始快照取 user_domains——真库实测并发解绑+建钥匙会留下「未绑定域里的 active 钥匙」。改为 FOR SHARE 锁定用户行后另起一条语句重查绑定（READ COMMITTED 逐句新快照），create_mcp_key/create_kb/add_member 三处共用此 seam",
+        "缺陷三（/api/ops/usage 真库必 500）：492ee5f 把 no_result_queries 从 retrieval summary 载荷退役（少跑一次 SQL），但旧端点仍调用该键 → KeyError。RetrievalRecordRepository 新增 no_result_queries 按需单跑方法（按原文聚合、次数倒序），QueryLogStats 适配层改调它——summary 载荷保持瘦身不回退那次整改",
+        "附带：transfer_kb_owner 用户行锁定循环抽成 _lock_transfer_users_on_conn（并发竞态测试可暂停 seam，行为零变化）；tests/kb 22 个测试文件对齐现行契约 + 修复 test_purge_routes 模块打桩泄漏（跨文件污染），全量 70 文件真库 682 passed",
+        "部署：纯 Python 源码增量（--code-only），仅重启 mining；无 DB 迁移、无配置变更、无前端/jar 变更"
+      ]
+    },
     {
       "version": "1.1.20",
       "released_at": "2026-10-27",
