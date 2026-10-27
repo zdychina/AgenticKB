@@ -277,15 +277,29 @@ class KbDB:
     async def _lock_user_domain_access_on_conn(
         conn: Any, *, user_id: str, domain: str,
     ) -> bool:
+        """FOR SHARE 串行化用户行后，**另起一条语句**重查域绑定。
+
+        不能把 EXISTS 绑定检查并进 FOR SHARE 同一条：被 unbind_domain 的
+        FOR UPDATE 阻塞再唤醒时，EvalPlanQual 重查仍按语句起始快照取
+        user_domains，刚解绑的域会被当成仍绑定——并发 unbind + 建钥匙/建库
+        实测会造出「未绑定域里的 active 钥匙」。READ COMMITTED 每条语句
+        取新快照，锁到之后再查才能看到解绑结果。
+        """
         cur = await conn.execute(
-            """SELECT u.id FROM kb_users u
-               WHERE u.id = %(uid)s AND u.status = 'active'
-                 AND u.deleted_at IS NULL
+            """SELECT id FROM kb_users
+               WHERE id = %(uid)s AND status = 'active' AND deleted_at IS NULL
+               FOR SHARE""",
+            {"uid": user_id},
+        )
+        if await cur.fetchone() is None:
+            return False
+        cur = await conn.execute(
+            """SELECT 1 FROM kb_users u
+               WHERE u.id = %(uid)s
                  AND (u.site_role = 'admin' OR EXISTS (
                      SELECT 1 FROM user_domains ud
                      WHERE ud.user_id = u.id AND ud.domain = %(domain)s
-                 ))
-               FOR SHARE""",
+                 ))""",
             {"uid": user_id, "domain": domain},
         )
         return await cur.fetchone() is not None
@@ -1033,6 +1047,22 @@ class KbDB:
                 row = await cur.fetchone()
                 return dict(row)  # type: ignore[arg-type]
 
+    async def _lock_transfer_users_on_conn(
+        self, conn: Any, *, lock_ids: set[str],
+    ) -> dict[str, dict[str, Any]]:
+        """FOR SHARE 锁定转移相关用户行（并发清除/转移竞态测试的暂停 seam）。"""
+        locked_users: dict[str, dict[str, Any]] = {}
+        for locked_user_id in sorted(lock_ids):
+            cur = await conn.execute(
+                """SELECT id, status, site_role, deleted_at FROM kb_users
+                   WHERE id = %s FOR SHARE""",
+                (locked_user_id,),
+            )
+            row = await cur.fetchone()
+            if row is not None:
+                locked_users[locked_user_id] = dict(row)
+        return locked_users
+
     async def transfer_kb_owner(
         self, *, kb_id: str, actor_id: str, new_owner_id: str, keep_old_as_editor: bool,
     ) -> dict[str, Any] | None:
@@ -1050,16 +1080,9 @@ class KbDB:
                 lock_ids = {str(actor_id), str(new_owner_id)}
                 if keep_old_as_editor:
                     lock_ids.add(str(kb["owner_id"]))
-                locked_users: dict[str, dict[str, Any]] = {}
-                for locked_user_id in sorted(lock_ids):
-                    cur = await conn.execute(
-                        """SELECT id, status, site_role, deleted_at FROM kb_users
-                           WHERE id = %s FOR SHARE""",
-                        (locked_user_id,),
-                    )
-                    row = await cur.fetchone()
-                    if row is not None:
-                        locked_users[locked_user_id] = dict(row)
+                locked_users = await self._lock_transfer_users_on_conn(
+                    conn, lock_ids=lock_ids,
+                )
                 actor = locked_users.get(str(actor_id))
                 if (
                     actor is None or actor["status"] != "active"
@@ -2526,6 +2549,7 @@ WITH latest AS (
                            d.document_type, d.storage_path, d.directory_path, d.owner_id,
                            d.metadata_json, d.created_at, d.file_size, d.modified_at,
                            d.storage_object_id, d.source_raw_hash, d.content_revision, d.folder_id,
+                           d.deleted_at,
                            {_KNOWLEDGE_OUTDATED_SQL} AS knowledge_outdated,
                            {_STATUS_CASE_SQL} AS status
                     FROM asset_documents d

@@ -586,6 +586,21 @@ class RetrievalRecordRepository:
             "top_queries": top_queries,
         }
 
+    async def no_result_queries(
+        self, *, domain: str, days: int, limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """答不上来的原句榜（按原文聚合，次数倒序）。
+
+        492ee5f 起不再进 summary 载荷——新端点的消费方已下线该卡片，
+        summary 不该为它多跑一次 SQL；本方法只服务旧版 /api/ops/usage
+        兼容端点的按需调用。"""
+        clauses, params = self._where(domain=domain)
+        clauses.append("occurred_at >= %(since)s")
+        params["since"] = _since(days)
+        where = " AND ".join(clauses) + " AND operation = 'search' AND status = 'no_result'"
+        async with self._pool.connection() as conn:
+            return await self._query_usage_on_conn(conn, where, params, limit)
+
     async def _breakdown_on_conn(
         self, conn: Any, where: str, params: dict[str, Any], column: str
     ) -> dict[str, int]:
