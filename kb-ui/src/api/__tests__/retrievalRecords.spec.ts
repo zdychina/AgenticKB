@@ -64,6 +64,21 @@ describe('retrieval records API', () => {
     })
   })
 
+  it('exports with the same serialized filters', async () => {
+    get.mockResolvedValue({ data: { data: { items: [], truncated: false, row_limit: 10000 } } })
+
+    await useRetrievalRecordsApi().exportAll('domain-a', {
+      startDate: '2026-10-01', endDate: '2026-10-20', status: 'failed',
+    })
+
+    expect(get).toHaveBeenCalledWith('/api/retrieval-records/export', {
+      params: {
+        domain: 'domain-a', start_date: '2026-10-01',
+        end_date: '2026-10-20', status: 'failed',
+      },
+    })
+  })
+
   it('loads one record detail by encoded id', async () => {
     get.mockResolvedValue({ data: { data: { id: 'call/1' } } })
 

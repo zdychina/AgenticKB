@@ -223,6 +223,61 @@ def test_detail_returns_404_for_record_outside_visible_scope(monkeypatch: pytest
     assert response.status_code == 404
 
 
+def test_export_routes_before_dynamic_detail_and_pulls_up_to_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """导出端点：字面量段先于 /{record_id} 注册；一次拉满上限并复用列表筛选。"""
+    service = FakeService()
+
+    async def fake_list(**kwargs: Any) -> dict[str, Any]:
+        service.calls.append(("list", kwargs))
+        return {
+            "items": [{"id": "call-1", "status": "success"}],
+            "next_cursor": None,
+            "has_more": True,
+            "page_size": kwargs["page_size"],
+        }
+
+    service.list_records = fake_list  # type: ignore[method-assign]
+    response = _client(monkeypatch, service).get(
+        "/api/retrieval-records/export",
+        params={
+            "domain": "cloud_core_network",
+            "status": "failed",
+            "start_date": "2026-10-01",
+            "end_date": "2026-10-20",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == [{"id": "call-1", "status": "success"}]
+    assert body["truncated"] is True
+    assert body["row_limit"] == 10_000
+    name, kwargs = service.calls[0]
+    assert name == "list"
+    assert kwargs["page_size"] == 10_001
+    assert kwargs["cursor"] is None
+    assert kwargs["status"] == "failed"
+    assert kwargs["start_date"] == date(2026, 10, 1)
+    assert kwargs["end_date"] == date(2026, 10, 20)
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"start_date": "2026-10-01"}, {"start_date": "2026-10-21", "end_date": "2026-10-20"}],
+)
+def test_export_rejects_invalid_custom_ranges(
+    monkeypatch: pytest.MonkeyPatch, params: dict[str, str],
+) -> None:
+    response = _client(monkeypatch, FakeService()).get(
+        "/api/retrieval-records/export",
+        params={"domain": "cloud_core_network", **params},
+    )
+
+    assert response.status_code == 422
+
+
 def test_internal_write_requires_safe_payload_and_never_accepts_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     service = FakeService()
     client = _client(monkeypatch, service)

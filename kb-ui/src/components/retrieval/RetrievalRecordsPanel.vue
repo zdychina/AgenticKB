@@ -44,7 +44,9 @@
       </select>
       <button type="submit" class="records-panel__button">筛选</button>
       <button type="button" class="records-panel__button records-panel__button--plain" @click="resetFilters">重置</button>
+      <button type="button" class="records-panel__button records-panel__button--plain" :disabled="exporting" @click="exportCsv">{{ exporting ? '导出中…' : '导出' }}</button>
       <p v-if="filterError" class="records-panel__filter-error">{{ filterError }}</p>
+      <p v-else-if="exportNotice" class="records-panel__filter-notice">{{ exportNotice }}</p>
     </form>
 
     <div v-if="error" class="records-panel__notice records-panel__notice--error">
@@ -156,6 +158,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRetrievalRecordsApi } from '@/api/retrievalRecords'
 import { apiErrorDetail } from '@/api/proxyClient'
 import { useDomainStore } from '@/stores/domain'
+import { saveBlob } from '@/utils/download'
 import StatsCard from '@/components/common/StatsCard.vue'
 import { useRetrievalNames } from '@/components/retrieval/useRetrievalNames'
 import type {
@@ -203,6 +206,8 @@ const applied = reactive({
   kbId: '', actorUserId: '', paradigmId: '', startDate: '', endDate: '',
 })
 const filterError = ref('')
+const exporting = ref(false)
+const exportNotice = ref('')
 
 // 与后端 _CUSTOM_RANGE_MAX_DAYS 对齐：自定义窗口最长一年
 const MAX_CUSTOM_RANGE_DAYS = 365
@@ -317,6 +322,68 @@ function resetFilters(): void {
     kbId: '', actorUserId: '', paradigmId: '', startDate: '', endDate: '',
   })
   applyFilters()
+}
+
+// ── 导出：当前筛选条件下拉全量（上限后端兜底），名称解析后拼 CSV ──
+
+const EXPORT_HEADERS = [
+  '时间', '用户', '来源', 'Tool / 操作', '查询或动作', '目标知识库',
+  '范式', '状态', '结果数', '耗时(ms)', '错误码', '调用 ID',
+]
+
+/** 标准 CSV 转义：含逗号/引号/换行的单元格包引号，引号翻倍。 */
+function csvCell(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+}
+
+function exportStamp(): string {
+  const now = new Date()
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+}
+
+function exportRow(item: RetrievalRecord): string[] {
+  return [
+    formatTime(item.occurred_at),
+    item.actor_username || '',
+    sourceLabel(item.source),
+    item.tool_name || operationLabel(item.operation),
+    actionSummary(item),
+    item.kb_ids.length ? item.kb_ids.map(kbName).join('、') : '',
+    item.paradigm_id
+      ? `${paradigmName(item.paradigm_id)}${item.paradigm_version == null ? '' : ` v${item.paradigm_version}`}`
+      : '',
+    statusLabel(item.status),
+    item.result_count == null ? '' : String(item.result_count),
+    item.duration_ms == null ? '' : String(Math.round(item.duration_ms)),
+    item.error_code || '',
+    item.id,
+  ]
+}
+
+async function exportCsv(): Promise<void> {
+  const domain = domainStore.currentDomain
+  if (!domain || exporting.value) return
+  exporting.value = true
+  exportNotice.value = ''
+  filterError.value = ''
+  try {
+    const result = await api.exportAll(domain, appliedFilters())
+    if (!result.items.length) {
+      exportNotice.value = '当前筛选没有可导出的记录'
+      return
+    }
+    const lines = [EXPORT_HEADERS.map(csvCell).join(',')]
+    for (const item of result.items) lines.push(exportRow(item).map(csvCell).join(','))
+    // BOM 让 Excel 直接以 UTF-8 打开中文不乱码
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    saveBlob(blob, `检索记录_${exportStamp()}.csv`)
+    if (result.truncated) exportNotice.value = `匹配行数超过上限 ${result.row_limit}，已按上限截断导出`
+  } catch (reason) {
+    filterError.value = await apiErrorDetail(reason)
+  } finally {
+    exporting.value = false
+  }
 }
 
 function nextPage(): void {
@@ -442,6 +509,7 @@ watch(() => [props.kbId, props.mcpKeyId], () => { cursorStack.value = []; curren
 .records-panel__input { flex: 1 1 220px; }.records-panel__input--tool { flex: 0 1 180px; }
 .records-panel__input--date { flex: 0 0 150px; }.records-panel__range-sep { align-self: center; color: var(--kb-text-tertiary); font-size: 12px; }
 .records-panel__filter-error { flex-basis: 100%; margin: 0; color: var(--kb-danger); font-size: 12px; }
+.records-panel__filter-notice { flex-basis: 100%; margin: 0; color: var(--kb-warning); font-size: 12px; }
 .records-panel__button { min-height: 34px; padding: 0 14px; border: 1px solid var(--kb-accent); border-radius: 6px; color: #fff; background: var(--kb-accent); cursor: pointer; }
 .records-panel__button--plain { color: var(--kb-text-secondary); background: var(--kb-bg-card); border-color: var(--kb-border); }
 .records-panel__button:disabled { opacity: .45; cursor: not-allowed; }

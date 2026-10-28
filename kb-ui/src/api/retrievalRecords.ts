@@ -1,7 +1,7 @@
 import { createProxyClient, extractOne } from '@/api/proxyClient'
 import type {
-  RetrievalRecord, RetrievalRecordFilters, RetrievalRecordsPage, RetrievalRecordsSummary,
-  RetrievalSummaryFilters,
+  RetrievalRecord, RetrievalRecordFilters, RetrievalRecordsExport, RetrievalRecordsPage,
+  RetrievalRecordsSummary, RetrievalSummaryFilters,
 } from '@/types/retrievalRecords'
 
 function compactParams(values: Record<string, unknown>): Record<string, unknown> {
@@ -45,6 +45,13 @@ export function useRetrievalRecordsApi() {
         params: serializeFilters(domain, filters),
       })
       return extractOne<RetrievalRecordsPage>(data)
+    },
+
+    async exportAll(domain: string, filters: RetrievalSummaryFilters = {}): Promise<RetrievalRecordsExport> {
+      const { data } = await client.get('/api/retrieval-records/export', {
+        params: serializeFilters(domain, filters),
+      })
+      return extractOne<RetrievalRecordsExport>(data)
     },
 
     async getOne(domain: string, id: string): Promise<RetrievalRecord> {

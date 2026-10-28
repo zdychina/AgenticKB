@@ -52,6 +52,13 @@ export interface RetrievalRecordsPage {
   page_size: number
 }
 
+/** 记录明细导出：与列表同一套筛选，单次拉满上限（truncated=超限截断）。 */
+export interface RetrievalRecordsExport {
+  items: RetrievalRecord[]
+  truncated: boolean
+  row_limit: number
+}
+
 export interface RetrievalSummaryCounts {
   total_calls: number
   calls: number
