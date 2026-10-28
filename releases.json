@@ -1,6 +1,19 @@
 {
-  "current": "1.1.22",
+  "current": "1.1.23",
   "releases": [
+    {
+      "version": "1.1.23",
+      "released_at": "2026-10-28",
+      "title": "检索记录-记录明细数据导出：同一套筛选单次拉满（上限 1 万行）→ 前端解析名称生成 BOM CSV",
+      "changes": [
+        "后端：新增 GET /api/retrieval-records/export——与列表同一套筛选参数（含 1.1.22 的 start_date/end_date 自定义窗口与 422 校验），单次拉满 _EXPORT_ROW_LIMIT=10000 行，响应 {items, truncated, row_limit}；字面量段注册在 /{record_id} 动态段之前（沿用 1.1.19 export-tasks 先例）；权限与列表同链路（可见库裁剪 + 非管理员只看自己）",
+        "前端：筛选栏新增「导出」按钮——按当前已应用筛选（非仅当前页）拉取，前端解析 KB/范式名称后生成 CSV 下载（文件名 检索记录_YYYYMMDD-HHMMSS.csv）",
+        "CSV 兼容性：UTF-8 BOM（Excel 双击直开中文）、标准引号/逗号/换行转义、列与表格一致（时间/用户/来源/Tool·操作/查询或动作/目标知识库/范式/状态/结果数/耗时/错误码/调用 ID）",
+        "边界反馈：空结果提示不产空文件；超上限黄色提示「已按上限截断」；失败行内红字；导出中按钮禁用防重复",
+        "测试：后端 3 例（字面量路由优先/筛选透传 page_size=10001/422 边界）后端共 55 passed；前端 5 例（CSV 内容+arrayBuffer 字节级 BOM 断言——blob.text() 按 spec 剥 BOM 的测试坑/空结果/截断/失败）前端共 23 passed；vue-tsc 通过",
+        "部署：Python 源码 + 前端 dist 增量（全量 pack），apply 重启 mining + control；无迁移无配置"
+      ]
+    },
     {
       "version": "1.1.22",
       "released_at": "2026-10-28",
