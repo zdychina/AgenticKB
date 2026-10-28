@@ -161,6 +161,10 @@ import { useDomainStore } from '@/stores/domain'
 import { saveBlob } from '@/utils/download'
 import StatsCard from '@/components/common/StatsCard.vue'
 import { useRetrievalNames } from '@/components/retrieval/useRetrievalNames'
+import {
+  prefillCustomRange, rangeFilters, validateCustomRange,
+  type RangePreset, type TimeRangeState,
+} from '@/components/retrieval/timeRange'
 import type {
   RetrievalOperation, RetrievalRecord, RetrievalRecordFilters, RetrievalRecordsSummary,
   RetrievalSource, RetrievalStatus,
@@ -196,44 +200,30 @@ const detailLoading = ref(false)
 const detailError = ref('')
 let loadGeneration = 0
 
-type RangePreset = number | 'custom'
-const draft = reactive({
-  days: 7 as RangePreset, source: '', status: '', operation: '', tool: '',
+type PanelFilters = TimeRangeState & {
+  source: string; status: string; operation: string; tool: string
+  kbId: string; actorUserId: string; paradigmId: string
+}
+const draft = reactive<PanelFilters>({
+  days: 7, source: '', status: '', operation: '', tool: '',
   kbId: '', actorUserId: '', paradigmId: '', startDate: '', endDate: '',
 })
-const applied = reactive({
-  days: 7 as RangePreset, source: '', status: '', operation: '', tool: '',
+const applied = reactive<PanelFilters>({
+  days: 7, source: '', status: '', operation: '', tool: '',
   kbId: '', actorUserId: '', paradigmId: '', startDate: '', endDate: '',
 })
 const filterError = ref('')
 const exporting = ref(false)
 const exportNotice = ref('')
 
-// 与后端 _CUSTOM_RANGE_MAX_DAYS 对齐：自定义窗口最长一年
-const MAX_CUSTOM_RANGE_DAYS = 365
-
-function toDateString(value: Date): string {
-  const pad = (part: number) => String(part).padStart(2, '0')
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
-}
-
-/** 切到"自定义"时预填近 7 天窗口，让筛选按钮开箱即用；已手选过日期则不覆盖。 */
+/** 切到"自定义"时预填近 7 天（共享逻辑见 timeRange.ts）。 */
 function onRangePresetChange(): void {
   filterError.value = ''
-  if (draft.days !== 'custom' || (draft.startDate && draft.endDate)) return
-  const today = new Date()
-  draft.startDate = toDateString(new Date(today.getTime() - 6 * 86400000))
-  draft.endDate = toDateString(today)
+  prefillCustomRange(draft)
 }
 
 function validateDraft(): string {
-  if (draft.days !== 'custom') return ''
-  if (!draft.startDate || !draft.endDate) return '自定义时间需要选择开始与结束日期'
-  // ISO 日期字符串的字典序即时间序
-  if (draft.startDate > draft.endDate) return '开始日期不能晚于结束日期'
-  const spanDays = (new Date(draft.endDate).getTime() - new Date(draft.startDate).getTime()) / 86400000
-  if (spanDays > MAX_CUSTOM_RANGE_DAYS) return `自定义时间最长跨 ${MAX_CUSTOM_RANGE_DAYS} 天`
-  return ''
+  return validateCustomRange(draft)
 }
 
 /**
@@ -258,12 +248,8 @@ const paradigmFilterOptions = computed(() => {
 })
 
 function appliedFilters(): RetrievalRecordFilters {
-  const custom = applied.days === 'custom'
   return {
-    // 自定义窗口与 days 快捷档互斥：只送其一，后端以前者优先
-    days: applied.days === 'custom' ? undefined : applied.days,
-    startDate: custom ? applied.startDate || undefined : undefined,
-    endDate: custom ? applied.endDate || undefined : undefined,
+    ...rangeFilters(applied),
     kbId: props.kbId || applied.kbId || undefined,
     mcpKeyId: props.mcpKeyId || undefined,
     source: applied.source as RetrievalSource | '',
