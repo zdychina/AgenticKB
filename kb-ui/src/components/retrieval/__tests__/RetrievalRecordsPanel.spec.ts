@@ -166,6 +166,85 @@ describe('RetrievalRecordsPanel', () => {
     expect(api.list).toHaveBeenCalledWith('domain-a', expect.objectContaining(expected))
   })
 
+  it('applies a custom date range that replaces the day preset', async () => {
+    const wrapper = shallowMount(RetrievalRecordsPanel)
+    await flushPromises()
+    vi.clearAllMocks()
+    api.getSummary.mockResolvedValue({ days: 20, available: true, summary: {}, trend: [], paradigms: [], tools: [], sources: {} })
+    api.list.mockResolvedValue({ items: [], next_cursor: null, has_more: false, page_size: 25 })
+
+    await wrapper.find('[aria-label="时间范围"]').setValue('custom')
+    // 切到自定义时预填近 7 天，再手改成目标区间
+    expect((wrapper.find('[aria-label="开始日期"]').element as HTMLInputElement).value).not.toBe('')
+    await wrapper.find('[aria-label="开始日期"]').setValue('2026-10-01')
+    await wrapper.find('[aria-label="结束日期"]').setValue('2026-10-20')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(api.getSummary).toHaveBeenCalledWith('domain-a', expect.objectContaining({
+      startDate: '2026-10-01', endDate: '2026-10-20',
+    }))
+    expect(api.getSummary.mock.calls[0][1].days).toBeUndefined()
+    expect(api.list).toHaveBeenCalledWith('domain-a', expect.objectContaining({
+      startDate: '2026-10-01', endDate: '2026-10-20',
+    }))
+    expect(api.list.mock.calls[0][1].days).toBeUndefined()
+  })
+
+  it('rejects incomplete or reversed custom ranges without hitting the API', async () => {
+    const wrapper = shallowMount(RetrievalRecordsPanel)
+    await flushPromises()
+    vi.clearAllMocks()
+
+    await wrapper.find('[aria-label="时间范围"]').setValue('custom')
+    await wrapper.find('[aria-label="开始日期"]').setValue('2026-10-01')
+    await wrapper.find('[aria-label="结束日期"]').setValue('')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.find('.records-panel__filter-error').text()).toContain('开始与结束日期')
+    expect(api.list).not.toHaveBeenCalled()
+
+    await wrapper.find('[aria-label="结束日期"]').setValue('2026-09-30')
+    await wrapper.find('form').trigger('submit')
+    expect(wrapper.find('.records-panel__filter-error').text()).toContain('开始日期不能晚于结束日期')
+    expect(api.getSummary).not.toHaveBeenCalled()
+    expect(api.list).not.toHaveBeenCalled()
+
+    // 修正区间后错误消除并正常请求
+    api.list.mockResolvedValue({ items: [], next_cursor: null, has_more: false, page_size: 25 })
+    api.getSummary.mockResolvedValue({ days: 2, available: true, summary: {}, trend: [], paradigms: [], tools: [], sources: {} })
+    await wrapper.find('[aria-label="结束日期"]').setValue('2026-10-02')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('.records-panel__filter-error').exists()).toBe(false)
+    expect(api.list).toHaveBeenCalledWith('domain-a', expect.objectContaining({
+      startDate: '2026-10-01', endDate: '2026-10-02',
+    }))
+  })
+
+  it('reset returns to the 7-day preset and clears custom dates', async () => {
+    const wrapper = shallowMount(RetrievalRecordsPanel)
+    await flushPromises()
+    vi.clearAllMocks()
+    api.getSummary.mockResolvedValue({ days: 7, available: true, summary: {}, trend: [], paradigms: [], tools: [], sources: {} })
+    api.list.mockResolvedValue({ items: [], next_cursor: null, has_more: false, page_size: 25 })
+
+    await wrapper.find('[aria-label="时间范围"]').setValue('custom')
+    await wrapper.find('[aria-label="开始日期"]').setValue('2026-10-01')
+    await wrapper.find('[aria-label="结束日期"]').setValue('2026-10-20')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    vi.clearAllMocks()
+    api.getSummary.mockResolvedValue({ days: 7, available: true, summary: {}, trend: [], paradigms: [], tools: [], sources: {} })
+    api.list.mockResolvedValue({ items: [], next_cursor: null, has_more: false, page_size: 25 })
+
+    await wrapper.findAll('button').find(b => b.text() === '重置')!.trigger('click')
+    await flushPromises()
+
+    expect(api.list).toHaveBeenCalledWith('domain-a', expect.objectContaining({ days: 7 }))
+    expect(api.list.mock.calls[0][1].startDate).toBeUndefined()
+    expect(wrapper.find('[aria-label="开始日期"]').exists()).toBe(false)
+  })
+
   it('opens a safe detail drawer without displaying secrets or response bodies', async () => {
     const wrapper = shallowMount(RetrievalRecordsPanel)
     await flushPromises()

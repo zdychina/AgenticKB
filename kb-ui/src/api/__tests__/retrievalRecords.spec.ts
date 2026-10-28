@@ -49,6 +49,21 @@ describe('retrieval records API', () => {
     })
   })
 
+  it('serializes a custom date window and omits the day preset', async () => {
+    get.mockResolvedValue({ data: { data: { items: [], next_cursor: null, has_more: false, page_size: 25 } } })
+
+    await useRetrievalRecordsApi().list('domain-a', {
+      startDate: '2026-10-01', endDate: '2026-10-20', source: 'mcp',
+    })
+
+    expect(get).toHaveBeenCalledWith('/api/retrieval-records', {
+      params: {
+        domain: 'domain-a', start_date: '2026-10-01',
+        end_date: '2026-10-20', source: 'mcp',
+      },
+    })
+  })
+
   it('loads one record detail by encoded id', async () => {
     get.mockResolvedValue({ data: { data: { id: 'call/1' } } })
 

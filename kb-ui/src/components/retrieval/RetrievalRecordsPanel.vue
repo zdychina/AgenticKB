@@ -8,11 +8,17 @@
     </div>
 
     <form class="records-panel__filters" @submit.prevent="applyFilters">
-      <select v-model.number="draft.days" class="records-panel__select" aria-label="时间范围">
+      <select v-model.number="draft.days" class="records-panel__select" aria-label="时间范围" @change="onRangePresetChange">
         <option :value="7">近 7 天</option>
         <option :value="30">近 30 天</option>
         <option :value="90">近 90 天</option>
+        <option value="custom">自定义</option>
       </select>
+      <template v-if="draft.days === 'custom'">
+        <input v-model="draft.startDate" type="date" class="records-panel__input records-panel__input--date" aria-label="开始日期" />
+        <span class="records-panel__range-sep">至</span>
+        <input v-model="draft.endDate" type="date" class="records-panel__input records-panel__input--date" aria-label="结束日期" />
+      </template>
       <select v-model="draft.source" class="records-panel__select" aria-label="来源">
         <option value="">全部来源</option>
         <option value="web">网页</option>
@@ -38,6 +44,7 @@
       </select>
       <button type="submit" class="records-panel__button">筛选</button>
       <button type="button" class="records-panel__button records-panel__button--plain" @click="resetFilters">重置</button>
+      <p v-if="filterError" class="records-panel__filter-error">{{ filterError }}</p>
     </form>
 
     <div v-if="error" class="records-panel__notice records-panel__notice--error">
@@ -186,8 +193,43 @@ const detailLoading = ref(false)
 const detailError = ref('')
 let loadGeneration = 0
 
-const draft = reactive({ days: 7, source: '', status: '', operation: '', tool: '', kbId: '', actorUserId: '', paradigmId: '' })
-const applied = reactive({ days: 7, source: '', status: '', operation: '', tool: '', kbId: '', actorUserId: '', paradigmId: '' })
+type RangePreset = number | 'custom'
+const draft = reactive({
+  days: 7 as RangePreset, source: '', status: '', operation: '', tool: '',
+  kbId: '', actorUserId: '', paradigmId: '', startDate: '', endDate: '',
+})
+const applied = reactive({
+  days: 7 as RangePreset, source: '', status: '', operation: '', tool: '',
+  kbId: '', actorUserId: '', paradigmId: '', startDate: '', endDate: '',
+})
+const filterError = ref('')
+
+// 与后端 _CUSTOM_RANGE_MAX_DAYS 对齐：自定义窗口最长一年
+const MAX_CUSTOM_RANGE_DAYS = 365
+
+function toDateString(value: Date): string {
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
+}
+
+/** 切到"自定义"时预填近 7 天窗口，让筛选按钮开箱即用；已手选过日期则不覆盖。 */
+function onRangePresetChange(): void {
+  filterError.value = ''
+  if (draft.days !== 'custom' || (draft.startDate && draft.endDate)) return
+  const today = new Date()
+  draft.startDate = toDateString(new Date(today.getTime() - 6 * 86400000))
+  draft.endDate = toDateString(today)
+}
+
+function validateDraft(): string {
+  if (draft.days !== 'custom') return ''
+  if (!draft.startDate || !draft.endDate) return '自定义时间需要选择开始与结束日期'
+  // ISO 日期字符串的字典序即时间序
+  if (draft.startDate > draft.endDate) return '开始日期不能晚于结束日期'
+  const spanDays = (new Date(draft.endDate).getTime() - new Date(draft.startDate).getTime()) / 86400000
+  if (spanDays > MAX_CUSTOM_RANGE_DAYS) return `自定义时间最长跨 ${MAX_CUSTOM_RANGE_DAYS} 天`
+  return ''
+}
 
 /**
  * 筛选下拉的选项 = 名称映射 ∪ 当前已加载记录里出现过的未知 ID。
@@ -211,8 +253,12 @@ const paradigmFilterOptions = computed(() => {
 })
 
 function appliedFilters(): RetrievalRecordFilters {
+  const custom = applied.days === 'custom'
   return {
-    days: applied.days,
+    // 自定义窗口与 days 快捷档互斥：只送其一，后端以前者优先
+    days: applied.days === 'custom' ? undefined : applied.days,
+    startDate: custom ? applied.startDate || undefined : undefined,
+    endDate: custom ? applied.endDate || undefined : undefined,
     kbId: props.kbId || applied.kbId || undefined,
     mcpKeyId: props.mcpKeyId || undefined,
     source: applied.source as RetrievalSource | '',
@@ -256,6 +302,9 @@ async function reload(): Promise<void> {
 }
 
 function applyFilters(): void {
+  // 校验失败只提示不请求，applied 保持旧值，列表维持上一次生效的筛选
+  filterError.value = validateDraft()
+  if (filterError.value) return
   Object.assign(applied, draft)
   cursorStack.value = []
   currentCursor.value = undefined
@@ -263,7 +312,10 @@ function applyFilters(): void {
 }
 
 function resetFilters(): void {
-  Object.assign(draft, { days: 7, source: '', status: '', operation: '', tool: '', kbId: '', actorUserId: '', paradigmId: '' })
+  Object.assign(draft, {
+    days: 7 as RangePreset, source: '', status: '', operation: '', tool: '',
+    kbId: '', actorUserId: '', paradigmId: '', startDate: '', endDate: '',
+  })
   applyFilters()
 }
 
@@ -388,6 +440,8 @@ watch(() => [props.kbId, props.mcpKeyId], () => { cursorStack.value = []; curren
 .records-panel__filters { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border: 1px solid var(--kb-border-light); border-radius: var(--kb-radius); background: var(--kb-bg-card); }
 .records-panel__input, .records-panel__select { min-height: 34px; padding: 0 10px; border: 1px solid var(--kb-border); border-radius: 6px; color: var(--kb-text-primary); background: var(--kb-bg-card); }
 .records-panel__input { flex: 1 1 220px; }.records-panel__input--tool { flex: 0 1 180px; }
+.records-panel__input--date { flex: 0 0 150px; }.records-panel__range-sep { align-self: center; color: var(--kb-text-tertiary); font-size: 12px; }
+.records-panel__filter-error { flex-basis: 100%; margin: 0; color: var(--kb-danger); font-size: 12px; }
 .records-panel__button { min-height: 34px; padding: 0 14px; border: 1px solid var(--kb-accent); border-radius: 6px; color: #fff; background: var(--kb-accent); cursor: pointer; }
 .records-panel__button--plain { color: var(--kb-text-secondary); background: var(--kb-bg-card); border-color: var(--kb-border); }
 .records-panel__button:disabled { opacity: .45; cursor: not-allowed; }

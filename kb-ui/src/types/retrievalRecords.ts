@@ -91,6 +91,9 @@ export interface RetrievalRecordFilters {
   cursor?: string
   pageSize?: number
   days?: number
+  /** 自定义日期窗口（YYYY-MM-DD，闭区间）；设置后覆盖 days 快捷档 */
+  startDate?: string
+  endDate?: string
   source?: RetrievalSource | ''
   toolName?: string
   operation?: RetrievalOperation | ''

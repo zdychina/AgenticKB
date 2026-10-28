@@ -16,6 +16,8 @@ function serializeFilters(domain: string, filters: RetrievalRecordFilters): Reco
     cursor: filters.cursor,
     page_size: filters.pageSize,
     days: filters.days,
+    start_date: filters.startDate,
+    end_date: filters.endDate,
     source: filters.source,
     tool_name: filters.toolName,
     operation: filters.operation,
