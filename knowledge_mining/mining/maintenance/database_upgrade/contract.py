@@ -15,7 +15,8 @@ CURRENT_SCHEMA_VERSION = "2026.09.user-lifecycle-retrieval-v1"
 # 66号批次1：加 011（wiki 目录草稿表 kb_wiki_tocs）后刷新。
 # 2026-11-10 合并 fzl194/master：整库导出与 wiki 两条分支各自用掉 010——
 # 迁移 id 含日期+表名全局唯一（双 010 保留，ledger 按整串 id 记账），合并后刷新。
-CURRENT_SCHEMA_CHECKSUM = "1e954b3dcbc1ff5553ee3b8e3de44c574c37ef144102f7a01b6e601ddbf6dda0"
+# 67号批次1：加 012（本体库六表）后刷新。
+CURRENT_SCHEMA_CHECKSUM = "9eda9f5369374a286cb0e6f63650a4dc3e2d077f29365861868a5ba5ac1cfcf6"
 SCHEMA_MARKER_ID = f"schema/{CURRENT_SCHEMA_VERSION}"
 MIGRATION_LEDGER_TABLE = "cmkb_schema_migrations"
 LEGACY_COMPAT_TABLES: tuple[str, ...] = ("mcp_open_kbs", "mcp_access")
@@ -94,6 +95,14 @@ FORMAL_TABLES: frozenset[str] = frozenset({
     "kb_wiki_page_units",
     # wiki 目录草稿（66号批次1，迁移 011）：设计态 toc，发布时冻结进 revisions
     "kb_wiki_tocs",
+    # 本体管理六表（67号批次1，迁移 012）：类型层（库/本体/属性/关系）+
+    # 实例层（语义对象/语义关系）
+    "ontology_libraries",
+    "ontologies",
+    "ontology_attributes",
+    "ontology_relations",
+    "semantic_objects",
+    "semantic_relations",
 })
 EXPECTED_FORMAL_TABLES = len(FORMAL_TABLES)
 EXPECTED_PHYSICAL_TABLES = EXPECTED_FORMAL_TABLES + 1
@@ -102,9 +111,10 @@ EXPECTED_PHYSICAL_TABLES = EXPECTED_FORMAL_TABLES + 1
 # Java log exists and the unified ledger does not yet exist. The kb_* artifact
 # six-table set (61号), the key-open-artifacts table (008), and the wiki
 # foundation four-table set (63号批次1，迁移 010：kb_artifact_sources 与 wiki 专有
-# 三表), and the wiki toc draft table (66号批次1，迁移 011) are new in this
-# release, so they are subtracted alongside the access-ledger pair when
-# reconstructing the previous release baseline——
+# 三表), the wiki toc draft table (66号批次1，迁移 011), and the ontology
+# management six-table set (67号批次1，迁移 012) are new in this release, so
+# they are subtracted alongside the access-ledger pair when reconstructing
+# the previous release baseline——
 # 漏减会让 validate_supported_rebase_source 拒认 1.1.15 源库（一跳升级被误判）。
 PREVIOUS_RELEASE_TABLES: frozenset[str] = frozenset(
     (
@@ -125,6 +135,12 @@ PREVIOUS_RELEASE_TABLES: frozenset[str] = frozenset(
             "kb_wiki_page_links",
             "kb_wiki_page_units",
             "kb_wiki_tocs",
+            "ontology_libraries",
+            "ontologies",
+            "ontology_attributes",
+            "ontology_relations",
+            "semantic_objects",
+            "semantic_relations",
         }
     )
     | {"serving_query_logs"}
@@ -161,5 +177,5 @@ RETIRED_TABLES: tuple[str, ...] = (
 if len(RETIRED_TABLES) != len(set(RETIRED_TABLES)):  # pragma: no cover - import guard
     raise RuntimeError("RETIRED_TABLES contains duplicates")
 
-if EXPECTED_FORMAL_TABLES != 66:  # pragma: no cover - import guard
-    raise RuntimeError("FORMAL_TABLES must contain exactly 66 names")
+if EXPECTED_FORMAL_TABLES != 72:  # pragma: no cover - import guard
+    raise RuntimeError("FORMAL_TABLES must contain exactly 72 names")

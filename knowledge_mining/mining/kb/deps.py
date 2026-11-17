@@ -184,6 +184,39 @@ async def get_artifact_import_service(request: Request) -> "Any":
     return ArtifactImportService(await get_artifact_db(request))
 
 
+async def get_ontology_db(request: Request) -> "Any":
+    """67号：本体库六表仓储。"""
+    from knowledge_mining.mining.kb.db_ontology import OntologyDB
+    return OntologyDB(request.app.state.pg_pool)
+
+
+async def get_ontology_service(request: Request) -> "Any":
+    """67号：本体管理业务层（域管理员写 / 域成员读）。"""
+    from knowledge_mining.mining.kb.services.ontology_service import OntologyService
+    return OntologyService(await get_ontology_db(request))
+
+
+async def get_ontology_import_service(request: Request) -> "Any":
+    """67号：语义对象批量导入两步向导（权限门禁经 OntologyService）。"""
+    from knowledge_mining.mining.kb.services.ontology_import_service import (
+        OntologyImportService,
+    )
+    return OntologyImportService(await get_ontology_db(request))
+
+
+async def get_ontology_extract_service(request: Request) -> "Any":
+    """67号 §八：AI 辅助实例化（LLM 走 GenerationClient 单例；KB 文档
+    经 KbDB 只读取文本；权限门禁经 OntologyService）。"""
+    from knowledge_mining.mining.kb.services.ontology_extract_service import (
+        OntologyExtractService,
+    )
+    return OntologyExtractService(
+        await get_ontology_db(request),
+        KbDB(request.app.state.pg_pool),
+        _get_generation_client(),
+    )
+
+
 async def get_export_service(request: Request) -> "Any":
     """整库导出（打包下载通道）：KbDB + ExportDB + 对象存储 + 导出配置."""
     from knowledge_mining.mining.infra.export_config import ExportConfig

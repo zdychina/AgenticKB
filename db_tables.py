@@ -91,6 +91,15 @@ EXPORT_TABLES = [
     "kb_wiki_page_units",
     # wiki 目录草稿（66号批次1，迁移 011，019 启动链同文；无外键）
     "kb_wiki_tocs",
+    # 本体管理六表（67号批次1，迁移 012，021 启动链同文）：类型层+实例层，
+    # 按外键依赖序（libraries→ontologies→attributes/relations→objects→edges；
+    # created_by 引用的 kb_users 已在列表前段导出）
+    "ontology_libraries",
+    "ontologies",
+    "ontology_attributes",
+    "ontology_relations",
+    "semantic_objects",
+    "semantic_relations",
 ]
 
 # 兼容尚未完成 52 号 bootstrap 的测试/旧库；生产收敛库验证要求这些表存在。

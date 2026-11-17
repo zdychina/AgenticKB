@@ -188,6 +188,11 @@ _KB_PURGE_TASKS_DDL = (
 _KB_EXPORT_TASKS_DDL = (
     _REPO_ROOT / "databases" / "kb" / "schemas" / "020_kb_export_tasks.sql"
 )
+# 67号本体管理：本体库六表（依赖 kb_users 的 created_by FK，链尾安全；
+# 存量库同文版本化迁移=core/20261117_012_ontology_library）。
+_ONTOLOGY_LIBRARY_DDL = (
+    _REPO_ROOT / "databases" / "kb" / "schemas" / "021_ontology_library.sql"
+)
 _WORKFLOW_CONTROL_DDL = _REPO_ROOT / "databases" / "mining_control" / "schemas" / "001_mining_workflow_postgresql.sql"
 
 
@@ -305,6 +310,8 @@ def domain_schema_paths() -> tuple[Path, ...]:
         # KB 整库导出任务表（020，原 018：与 wiki 的 018 撞号让位改号——启动链
         # 无 ledger、按文件名无记账，改号安全；存量库迁移 id 不变）：自包含，链尾。
         _KB_EXPORT_TASKS_DDL,
+        # 67号本体管理：本体库六表（created_by FK 依赖 kb_users，链尾安全）。
+        _ONTOLOGY_LIBRARY_DDL,
     )
 
 

@@ -40,8 +40,9 @@ public class ServingRuntimeSchemaInitializer implements DomainSchemaEnsurer {
     // 66号批次1：加 011（wiki 目录草稿表 kb_wiki_tocs）后刷新。
     // 2026-11-10 合并 fzl194/master：整库导出与 wiki 两条分支各自用掉 010——
     // 迁移 id 含日期+表名全局唯一（双 010 保留，ledger 按整串 id 记账），合并后刷新。
+    // 67号批次1：加 012（本体库六表）后刷新。
     private static final String EXPECTED_SCHEMA_CHECKSUM =
-            "1e954b3dcbc1ff5553ee3b8e3de44c574c37ef144102f7a01b6e601ddbf6dda0";
+            "9eda9f5369374a286cb0e6f63650a4dc3e2d077f29365861868a5ba5ac1cfcf6";
     private static final String EXPECTED_SCHEMA_MARKER =
             "schema/" + EXPECTED_SCHEMA_VERSION;
 

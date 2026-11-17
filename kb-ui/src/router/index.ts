@@ -89,6 +89,18 @@ const router = createRouter({
           props: true,
         },
         {
+          // 67号：本体管理（域成员可读——只读浏览库/本体/对象；写按钮按域管理员显隐）
+          path: 'ontology',
+          name: 'ontology-libraries',
+          component: () => import('@/views/ontology/OntologyLibraryListView.vue'),
+        },
+        {
+          path: 'ontology/:libraryId',
+          name: 'ontology-library-detail',
+          component: () => import('@/views/ontology/OntologyLibraryDetailView.vue'),
+          props: true,
+        },
+        {
           path: 'mining/workflows',
           name: 'mining-workflows',
           component: () => import('@/views/mining/WorkflowListView.vue'),

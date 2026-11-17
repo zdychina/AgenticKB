@@ -59,3 +59,7 @@ migrations:
     path: core/20261103_011_wiki_toc.sql
     mode: online_expand
     checksum: 30eb840b1fb9c55612f2ae1c4f936e6c3fefcbcffd4a3b0ec0cf5a7a5d56325c
+  - id: core/20261117_012_ontology_library
+    path: core/20261117_012_ontology_library.sql
+    mode: online_expand
+    checksum: 773aee123a4ac0916c8dddda996c0ecf1c16071262688eea11520baa2d9eb28c

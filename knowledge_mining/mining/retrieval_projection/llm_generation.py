@@ -69,6 +69,7 @@ class GenerationClient(Protocol):
         idempotency_key: str | None = None,
         pipeline_stage: str = "mining_enrichment",
         knowledge_domain: str | None = None,
+        model: str | None = None,
     ) -> Any: ...
 
 
@@ -98,6 +99,7 @@ class LLMServiceGenerationClient:
         idempotency_key: str | None = None,
         pipeline_stage: str = "mining_enrichment",
         knowledge_domain: str | None = None,
+        model: str | None = None,
     ) -> Any:
         payload: dict[str, Any] = {
             "caller_service": "mining",
@@ -109,6 +111,8 @@ class LLMServiceGenerationClient:
         }
         if idempotency_key:
             payload["idempotency_key"] = idempotency_key
+        if model is not None:
+            payload["model"] = model
         with httpx.Client(
             base_url=self._base_url, timeout=self._timeout,
             proxy=None, trust_env=False,
@@ -205,6 +209,7 @@ class LLMServiceAsyncGenerationClient:
         idempotency_key: str | None = None,
         pipeline_stage: str = "mining_enrichment",
         knowledge_domain: str | None = None,
+        model: str | None = None,
     ) -> Any:
         started = time.monotonic()
         task_id: str | None = None
@@ -216,6 +221,7 @@ class LLMServiceAsyncGenerationClient:
                     idempotency_key=idempotency_key,
                     pipeline_stage=pipeline_stage,
                     max_attempts=self._max_attempts,
+                    model=model,
                     knowledge_domain=knowledge_domain or self._knowledge_domain,
                 )
             except LlmTaskError as e:

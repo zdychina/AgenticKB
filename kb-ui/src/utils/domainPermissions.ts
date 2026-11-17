@@ -24,3 +24,16 @@ export function canManageDomainKnowledgeBases(
 ): boolean {
   return hasDomainCapability(siteRole, domain, 'domain.kbs.manage')
 }
+
+/**
+ * 67号本体管理写权限（新建/编辑/删除库与库内一切写）。
+ * 对齐后端 can_manage_domain 语义：站点管理员或该域域管理员——后端没有
+ * capabilities 细分（库内读=域成员），故不走 hasDomainCapability。
+ */
+export function canManageDomainOntology(
+  siteRole: SiteRole,
+  domain: DomainInfo | undefined,
+): boolean {
+  if (siteRole === 'admin') return true
+  return !!domain?.enabled && domain.domain_role === 'admin'
+}

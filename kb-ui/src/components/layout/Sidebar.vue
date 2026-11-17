@@ -46,7 +46,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   Monitor, Management, Key,
-  Cpu, Setting, Connection, Files, Share, UserFilled, Tickets, Grid,
+  Cpu, Setting, Connection, Files, Share, UserFilled, Tickets, Grid, Link,
   QuestionFilled,
 } from '@element-plus/icons-vue'
 import { useDomainStore } from '@/stores/domain'
@@ -81,6 +81,8 @@ const ALL_NAV = [
   { path: '/onenet', label: '一张网接入', icon: Share, access: 'site-admin' },
   // 61号批次4：知识制品（表格建表发布，viewer 也有运行态视图）
   { path: '/artifacts', label: '知识制品', icon: Grid, access: 'all' },
+  // 67号：本体管理（域成员只读可进；写操作按域管理员显隐，后端强校验）
+  { path: '/ontology', label: '本体管理', icon: Link, access: 'all' },
   { path: '/llm', label: 'LLM 服务', icon: Cpu, access: 'site-admin' },
   { path: '/users', label: '用户管理', icon: UserFilled, access: 'domain-users' },
   { path: '/settings', label: '系统设置', icon: Setting, access: 'site-admin' },
