@@ -205,7 +205,7 @@ def _map_import_error(exc: Exception) -> HTTPException:
 
 # ----------------------------------------------------------------- 本体库
 
-@router.post("/libraries")
+@router.post("/libraries", status_code=201)
 async def create_library(
     body: LibraryCreate,
     user: dict = Depends(current_user),

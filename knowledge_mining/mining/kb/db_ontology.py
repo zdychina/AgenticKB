@@ -965,10 +965,16 @@ class OntologyDB:
 
 async def _insert_attributes(conn: Any, ontology_id: str,
                              attributes: list[dict[str, Any]]) -> None:
-    """批量插入属性定义（建本体时初始列表；sort_order 缺省按下标）。"""
+    """批量插入属性定义（建本体时初始列表；sort_order 缺省按下标）。
+
+    路由层 pydantic 会 dump 出显式 ``sort_order=None``（键存在值为
+    None）——``.get(key, default)`` 取不到默认值，须按 None 兜底，否则
+    NOT NULL 列插空（1.1.30 生产冒烟暴露）。
+    """
     rows = [
         (_new_id(), ontology_id, a["name"], a.get("description"),
-         a.get("sort_order", idx), _utcnow())
+         a["sort_order"] if a.get("sort_order") is not None else idx,
+         _utcnow())
         for idx, a in enumerate(attributes)
     ]
     await conn.cursor().executemany(

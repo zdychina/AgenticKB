@@ -1,6 +1,31 @@
 {
-  "current": "1.1.29",
+  "current": "1.1.31",
   "releases": [
+    {
+      "version": "1.1.31",
+      "released_at": "2026-11-17",
+      "title": "本体管理冒烟暴露两处修复：初始属性 sort_order 显式 None 插空 + 建库 201",
+      "changes": [
+        "修复：建本体带初始属性时，路由层 pydantic dump 出显式 sort_order=None/description=None（键存在值为 None），_insert_attributes 的 .get(key, default) 取不到默认值把 NULL 插进 NOT NULL 列 → 409；现按 None 兜底下标序（service 层直调此前绕过路由层未暴露，补同形态回归用例）",
+        "补齐：POST /api/kb/ontology/libraries 声明 status_code=201（唯一漏声明的建资源端点，冒烟按设计口径校验发现）",
+        "部署：纯 Python --code-only 增量包，无迁移无配置"
+      ]
+    },
+    {
+      "version": "1.1.30",
+      "released_at": "2026-11-17",
+      "title": "本体管理（67号）：库/本体/关系/对象四层模型 + 批量导入 + AI 抽取实例化",
+      "changes": [
+        "模型与权限：域下多本体库；本体（属性无类型系统，值=JSONB 自由标量）+ 有向关系类型（端点绑本体，库内名唯一）+ 语义对象/语义关系实例层；写=域管理员、读=域成员；删除全 RESTRICT（有依赖拒删并报计数），属性改名/删键同事务迁移对象存量键",
+        "端点 32 个：库/本体/属性/关系类型 CRUD、对象 CRUD+邻接边、/schema 图数据端点、两步式批量导入、AI 抽取三件套（POST extract 202 异步 token 轮询 / GET extract/{token} / POST instantiate 单事务批量落库）",
+        "批量导入（P2）：CSV/XLSX upload（utf-8-sig / openpyxl，token 1h、每人≤5 清最旧）→ commit 列映射校验，四类行错误聚合 422 整批拒绝，executemany 单事务 source='import'；前端三步向导（列映射自动预选、422 报告表、错误 CSV 导出带 BOM）",
+        "AI 抽取（P3）：源三选一（粘贴 / 上传 txt-md / KB 文档只读单向——跨域 404、未挖掘 422、超 2 万字符自动截断带 truncated）；prompt 版本冻结 v1 + model 可透传（GenerationClient 协议三实现）；候选组装带冲突标记 / 关系引用解析丢弃+warning / 端点预检 / 候选≤100 截断；前端五步向导（2s 轮询、候选双表格行内编辑+冲突标黄+端点标红、422 定位回显）",
+        "instantiate 批量落库：对象+关系一批单事务全有或全无，端点 index/object_id 混合引用支持新/已有任意组合，校验聚合为 objects[i]/relations[j] 定位报告；并发重名 UniqueViolation→409",
+        "契约镜像：DDL 021 + 迁移 012（manifest 登记 checksum 同刷）、pg_schema 启动链、db_tables EXPORT_TABLES、Java ServingRuntimeSchemaInitializer 正式表清单、升级契约测试六处同刷",
+        "测试：后端真库 db/导入/抽取三套全绿；前端 105 文件 784 用例 + vue-tsc 全绿",
+        "部署：Python + Java jar + 前端 dist 全量包，含 1 个 DB 在线迁移（20261117_012 本体六表）；apply 后按序重启并健康检查"
+      ]
+    },
     {
       "version": "1.1.29",
       "released_at": "2026-10-29",

@@ -346,3 +346,25 @@ async def test_library_schema_and_object_listing(async_pool) -> None:
     detail = await svc.get_object(listing["items"][0]["id"], user=admin)
     assert detail["attribute_defs"][0]["name"] == "适应症"
     assert detail["outgoing_count"] == 0 and detail["incoming_count"] == 0
+
+
+async def test_create_ontology_attributes_with_explicit_none(async_pool) -> None:
+    """回归（1.1.30 生产冒烟）：路由 pydantic dump 出显式 ``sort_order=None``/
+    ``description=None``（键存在值为 None）——``.get(key, default)`` 取不到
+    默认值，曾把 NULL 插进 NOT NULL 列。service 层按该形态直调锁定。"""
+    svc = _svc(async_pool)
+    admin = await _make_user(async_pool, domain=_DOMAIN, domain_admin=True)
+    lib = await _make_library(svc, admin)
+
+    onto = await svc.create_ontology(
+        lib["id"], name="显式空值本体", description=None,
+        attributes=[
+            {"name": "适应症", "description": None, "sort_order": None},
+            {"name": "剂量", "description": None, "sort_order": None},
+        ],
+        user=admin,
+    )
+    detail = await svc.get_ontology(onto["id"], user=admin)
+    assert [a["name"] for a in detail["attributes"]] == ["适应症", "剂量"]
+    # None 兜底为下标序，而不是 NULL
+    assert [a["sort_order"] for a in detail["attributes"]] == [0, 1]
