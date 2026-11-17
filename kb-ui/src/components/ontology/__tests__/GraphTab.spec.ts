@@ -54,6 +54,7 @@ interface GraphTabVm {
   libraryEmpty: boolean
   legendChips: Array<{ id: string; name: string; off: boolean; count: number }>
   drawerVisible: boolean
+  drawerLoading: boolean
   drawerDetail: { name: string } | null
   drawerNeighbors: { outgoing: unknown[]; incoming: unknown[] }
   load: () => Promise<void>
@@ -242,5 +243,81 @@ describe('graph tab — 实例图渲染（68号 §四）', () => {
     await flushPromises()
     wrapper.unmount()
     expect(g6.Graph.instances[0].destroyed).toBe(true)
+  })
+
+  it('defers rendering while the tab is inactive and renders on activation', async () => {
+    const wrapper = shallowMount(GraphTab, {
+      props: { libraryId: 'lib-1', ontologies, active: false },
+    })
+    await flushPromises()
+
+    // 数据照拉（轻），但隐藏画布（尺寸 0）不创建不渲染
+    expect(state.api.getLibraryGraph).toHaveBeenCalledTimes(1)
+    expect(g6.Graph.instances).toHaveLength(0)
+
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(g6.Graph.instances).toHaveLength(1)
+    expect(g6.Graph.instances[0].rendered).toBeGreaterThanOrEqual(1)
+    expect(lastGraph().nodes).toHaveLength(3)
+  })
+
+  it('destroys the instance when the library empties, rebinds when refilled', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+    expect(g6.Graph.instances).toHaveLength(1)
+
+    // 其他 Tab 删光对象 → watch 触发重拉 → 空库回收画布实例（容器已随空态卸载）
+    state.api.getLibraryGraph.mockResolvedValue({
+      nodes: [], edges: [], total_objects: 0, truncated: false,
+    })
+    await wrapper.setProps({ ontologies: [...ontologies] })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as GraphTabVm
+    expect(vm.libraryEmpty).toBe(true)
+    expect(g6.Graph.instances[0].destroyed).toBe(true)
+
+    // 再有数据：用新容器重建（而非复用绑在已卸载旧容器上的实例）
+    state.api.getLibraryGraph.mockResolvedValue(graph)
+    await wrapper.setProps({ ontologies: [...ontologies] })
+    await flushPromises()
+    expect(g6.Graph.instances).toHaveLength(2)
+    expect(g6.Graph.instances[1].destroyed).toBe(false)
+    expect(lastGraph().nodes).toHaveLength(3)
+  })
+
+  it('drawer keeps the latest clicked node when responses arrive out of order', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as GraphTabVm
+
+    // 先点 AMF（响应挂起），再点 切片1（立即回）——AMF 的迟到响应必须被丢弃
+    let resolveAmf: (value: unknown) => void = () => {}
+    state.api.getObject.mockImplementation((id: string) =>
+      id === 'obj-amf'
+        ? new Promise(resolve => { resolveAmf = resolve })
+        : Promise.resolve({
+          id, library_id: 'lib-1', ontology_id: 'onto-feature',
+          ontology_name: '特性', name: '切片1', attributes_json: null,
+          source: 'manual', created_by: 'u1',
+          created_at: '2026-11-17T08:00:00+00:00', updated_at: '2026-11-17T08:00:00+00:00',
+          attribute_defs: [], outgoing_count: 0, incoming_count: 1,
+        }))
+
+    lastGraph().clickNode('obj-amf')
+    lastGraph().clickNode('obj-slice')
+    await flushPromises()
+    expect(vm.drawerDetail?.name).toBe('切片1')
+
+    resolveAmf({
+      id: 'obj-amf', library_id: 'lib-1', ontology_id: 'onto-device',
+      ontology_name: '设备', name: 'AMF', attributes_json: null,
+      source: 'manual', created_by: 'u1',
+      created_at: '2026-11-17T08:00:00+00:00', updated_at: '2026-11-17T08:00:00+00:00',
+      attribute_defs: [], outgoing_count: 1, incoming_count: 0,
+    })
+    await flushPromises()
+    expect(vm.drawerDetail?.name).toBe('切片1')  // 迟到的旧响应不覆盖
+    expect(vm.drawerLoading).toBe(false)
   })
 })

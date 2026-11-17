@@ -528,6 +528,8 @@ const detail = ref<OntologyObjectDetail | null>(null)
 const neighbors = ref<{ outgoing: ObjectNeighborEdge[]; incoming: ObjectNeighborEdge[] }>({
   outgoing: [], incoming: [],
 })
+/** 详情加载并发防护：只认最新一次请求的响应（连点跳转时旧响应丢弃）。 */
+let detailSeq = 0
 
 async function openDetail(row: OntologyObjectRow) {
   await loadDetail(row.id)
@@ -539,18 +541,22 @@ async function openDetailById(objectId: string) {
 }
 
 async function loadDetail(objectId: string) {
+  const seq = ++detailSeq
   detailLoading.value = true
   try {
     const [object, neighborResult] = await Promise.all([
       api.getObject(objectId),
       api.getObjectNeighbors(objectId),
     ])
+    if (seq !== detailSeq) return  // 连点邻接行跳转时，晚到的旧响应丢弃
     detail.value = object
     neighbors.value = neighborResult
   } catch (error) {
-    ElMessage.error(`加载详情失败：${await apiErrorDetail(error)}`)
+    if (seq === detailSeq) {
+      ElMessage.error(`加载详情失败：${await apiErrorDetail(error)}`)
+    }
   } finally {
-    detailLoading.value = false
+    if (seq === detailSeq) detailLoading.value = false
   }
 }
 

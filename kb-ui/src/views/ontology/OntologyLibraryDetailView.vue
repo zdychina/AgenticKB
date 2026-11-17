@@ -49,7 +49,7 @@
         />
       </el-tab-pane>
       <el-tab-pane label="图谱" name="graph" lazy>
-        <GraphTab :library-id="libraryId" :ontologies="ontologies" />
+        <GraphTab :library-id="libraryId" :ontologies="ontologies" :active="activeTab === 'graph'" />
       </el-tab-pane>
     </el-tabs>
 

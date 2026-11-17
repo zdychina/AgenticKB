@@ -92,11 +92,15 @@ import type {
   GraphEdge, GraphNode, LibraryGraph, ObjectNeighbors, Ontology, OntologyObjectDetail,
 } from '@/types/ontology'
 
-const props = defineProps<{
+// Boolean prop 缺省会被 Vue cast 成 false（而非 undefined）：显式 default true，
+// 这样未传 active 的挂载方（测试/未来复用）默认即可渲染
+const props = withDefaults(defineProps<{
   libraryId: string
   /** 父级已加载的本体清单：图例与着色顺序直接用，不重复拉 schema。 */
   ontologies: Ontology[]
-}>()
+  /** Tab 是否激活：隐藏时画布尺寸为 0，渲染/自适应须推迟到激活后。 */
+  active?: boolean
+}>(), { active: true })
 
 const api = useOntologyApi()
 
@@ -115,7 +119,11 @@ const containerRef = ref<HTMLElement>()
 /** 首次 load 完成前不响应 props.ontologies 变化（那是父级初始加载，不是写后刷新）。 */
 let loadedOnce = false
 let graph: Graph | null = null
+/** 并发防护：load / openDrawer 各自只认最新一次请求的响应。 */
+let loadSeq = 0
+let drawerSeq = 0
 
+const active = computed(() => props.active !== false)
 const libraryEmpty = computed(() =>
   graphData.value !== null && graphData.value.nodes.length === 0)
 const allToggledOff = computed(() => {
@@ -149,17 +157,25 @@ function buildColorMap(): Map<string, string> {
 }
 
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   try {
-    graphData.value = await api.getLibraryGraph(props.libraryId)
+    const data = await api.getLibraryGraph(props.libraryId)
+    if (seq !== loadSeq) return  // 已有更新的一次 load 在途，丢弃旧响应
+    graphData.value = data
     loadedOnce = true
     await nextTick()  // 空态切换后容器可能刚挂载/卸载，等 DOM 稳定再画
     await renderGraph()
   } catch (error) {
     ElMessage.error(`加载图谱失败：${await apiErrorDetail(error)}`)
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
+}
+
+function destroyGraph() {
+  graph?.destroy()
+  graph = null
 }
 
 function ensureGraph(): Graph | null {
@@ -178,7 +194,7 @@ function ensureGraph(): Graph | null {
         stroke: '#fff',
         lineWidth: 2,
         labelText: (d: NodeData): string =>
-          String(d.data?.name ?? d.id ?? ''),
+          d.data?.dim ? '' : String(d.data?.name ?? d.id ?? ''),
         labelPlacement: 'bottom',
         labelFontSize: 12,
         labelFill: '#334155',
@@ -230,10 +246,23 @@ function toDisplayData() {
 }
 
 async function renderGraph() {
+  // Tab 隐藏（display:none）时画布尺寸为 0：布局/自适应会产生错误视口，
+  // 推迟到激活时补渲染（见 active watch）
+  if (!active.value) return
+  // 空库时画布 div 随空态切换被卸载：实例若不回收，之后再有数据会仍绑在
+  // 已脱离 DOM 的旧容器上（图谱隐形）——跟着销毁，重建时自然重绑新容器
+  if (libraryEmpty.value) {
+    destroyGraph()
+    return
+  }
   const g = ensureGraph()
   if (!g) return
-  g.setData(toDisplayData())
-  await g.render()
+  try {
+    g.setData(toDisplayData())
+    await g.render()
+  } catch (error) {
+    ElMessage.error(`图谱渲染失败：${await apiErrorDetail(error)}`)
+  }
 }
 
 function toggleOntology(ontologyId: string) {
@@ -265,18 +294,22 @@ const drawerDetail = ref<OntologyObjectDetail | null>(null)
 const drawerNeighbors = ref<ObjectNeighbors>({ outgoing: [], incoming: [] })
 
 async function openDrawer(objectId: string) {
+  const seq = ++drawerSeq
   drawerVisible.value = true
   drawerLoading.value = true
   try {
     const [detail, neighbors] = await Promise.all([
       api.getObject(objectId), api.getObjectNeighbors(objectId),
     ])
+    if (seq !== drawerSeq) return  // 期间又点了别的节点：晚到的旧响应丢弃
     drawerDetail.value = detail
     drawerNeighbors.value = neighbors
   } catch (error) {
-    ElMessage.error(`加载对象详情失败：${await apiErrorDetail(error)}`)
+    if (seq === drawerSeq) {
+      ElMessage.error(`加载对象详情失败：${await apiErrorDetail(error)}`)
+    }
   } finally {
-    drawerLoading.value = false
+    if (seq === drawerSeq) drawerLoading.value = false
   }
 }
 
@@ -293,10 +326,11 @@ onMounted(load)
 watch(() => props.ontologies, () => {
   if (loadedOnce) void load()
 })
-onBeforeUnmount(() => {
-  graph?.destroy()
-  graph = null
+// 隐藏期间数据已换（renderGraph 被搁置）：激活时补一次渲染
+watch(() => props.active, (now, was) => {
+  if (now && !was) void renderGraph()
 })
+onBeforeUnmount(destroyGraph)
 </script>
 
 <style scoped>
