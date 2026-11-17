@@ -464,6 +464,13 @@ async function save() {
       await api.updateObject(editingId.value, { name, attributes: collectAttributes() })
     } else {
       await api.createObject(form.value.ontologyId, { name, attributes: collectAttributes() })
+      // 新对象按 created_at 倒序排在最前：回第一页并撤掉会把它滤掉的
+      // 筛选（留存的关键词/本体过滤曾让新建对象「刷新才可见」）
+      page.value = 1
+      keyword.value = ''
+      if (filterOntologyId.value && filterOntologyId.value !== form.value.ontologyId) {
+        filterOntologyId.value = ''
+      }
     }
     formVisible.value = false
     ElMessage.success('已保存')
@@ -498,6 +505,10 @@ const importVisible = ref(false)
 const extractVisible = ref(false)
 
 function onImported() {
+  // 批量导入 / AI 抽取落库的新对象同样按最新在前：重置筛选保证可见
+  page.value = 1
+  keyword.value = ''
+  filterOntologyId.value = ''
   void reload()
   emit('refresh')
 }
