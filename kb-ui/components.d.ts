@@ -71,6 +71,7 @@ declare module 'vue' {
     ElTree: typeof import('element-plus/es')['ElTree']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     EmptyState: typeof import('./src/components/common/EmptyState.vue')['default']
+    GraphTab: typeof import('./src/components/ontology/GraphTab.vue')['default']
     Header: typeof import('./src/components/layout/Header.vue')['default']
     JsonSchemaParamForm: typeof import('./src/components/workflow/JsonSchemaParamForm.vue')['default']
     KbCard: typeof import('./src/components/dashboard/KbCard.vue')['default']

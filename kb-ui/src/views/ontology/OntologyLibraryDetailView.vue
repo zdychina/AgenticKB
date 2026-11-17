@@ -48,6 +48,9 @@
           @refresh="refreshAll"
         />
       </el-tab-pane>
+      <el-tab-pane label="图谱" name="graph" lazy>
+        <GraphTab :library-id="libraryId" :ontologies="ontologies" />
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="editVisible" title="编辑本体库" width="500px">
@@ -80,6 +83,7 @@ import { canManageDomainOntology } from '@/utils/domainPermissions'
 import OntologyTab from '@/components/ontology/OntologyTab.vue'
 import RelationTab from '@/components/ontology/RelationTab.vue'
 import ObjectTab from '@/components/ontology/ObjectTab.vue'
+import GraphTab from '@/components/ontology/GraphTab.vue'
 import type { Ontology, OntologyLibrary, OntologyRelation } from '@/types/ontology'
 
 const props = defineProps<{ libraryId: string }>()

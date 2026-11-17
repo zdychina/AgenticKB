@@ -922,6 +922,69 @@ class OntologyDB:
             relations = [dict(r) for r in await cur.fetchall()]
             return {"ontologies": ontologies, "relations": relations}
 
+    async def get_library_graph(
+        self, library_id: str, *, ontology_ids: list[str] | None, limit: int,
+    ) -> dict[str, Any]:
+        """库内实例图全量（68号 §2.2）：对象节点 + 关系边。
+
+        节点护栏：limit 截断时 truncated=true；total_objects 是过滤前的
+        库内对象总数（前端横幅提示用）。ontology_ids 过滤在 SQL 内完成，
+        边按两端均在节点集内收敛（图上不出现悬空半边）。
+        """
+        params: dict[str, Any] = {"library_id": library_id}
+        onto_filter = ""
+        if ontology_ids:
+            onto_filter = " AND so.ontology_id = ANY(%(ontology_ids)s)"
+            params["ontology_ids"] = ontology_ids
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT count(*) AS n FROM semantic_objects"
+                " WHERE library_id = %(library_id)s",
+                {"library_id": library_id},
+            )
+            total_objects = int((await cur.fetchone())["n"])
+            cur = await conn.execute(
+                f"""SELECT count(*) AS n FROM semantic_objects so
+                    WHERE so.library_id = %(library_id)s{onto_filter}""",
+                params,
+            )
+            matching = int((await cur.fetchone())["n"])
+            cur = await conn.execute(
+                f"""SELECT so.id, so.name, so.ontology_id,
+                           o.name AS ontology_name
+                    FROM semantic_objects so
+                    JOIN ontologies o ON o.id = so.ontology_id
+                    WHERE so.library_id = %(library_id)s{onto_filter}
+                    ORDER BY so.created_at, so.id
+                    LIMIT %(limit)s""",
+                {**params, "limit": limit},
+            )
+            nodes = [dict(r) for r in await cur.fetchall()]
+            if not nodes:
+                return {
+                    "nodes": [], "edges": [],
+                    "total_objects": total_objects, "truncated": False,
+                }
+            cur = await conn.execute(
+                """SELECT sr.id, sr.source_object_id AS source,
+                          sr.target_object_id AS target,
+                          sr.ontology_relation_id,
+                          r.name AS relation_name
+                   FROM semantic_relations sr
+                   JOIN ontology_relations r ON r.id = sr.ontology_relation_id
+                   WHERE sr.library_id = %(library_id)s""",
+                {"library_id": library_id},
+            )
+            all_edges = [dict(r) for r in await cur.fetchall()]
+            node_ids = {n["id"] for n in nodes}
+            edges = [e for e in all_edges
+                     if e["source"] in node_ids and e["target"] in node_ids]
+            return {
+                "nodes": nodes, "edges": edges,
+                "total_objects": total_objects,
+                "truncated": matching > len(nodes),
+            }
+
     async def get_object_neighbors(self, object_id: str) -> dict[str, Any] | None:
         """一度邻接：出边/入边各带关系类型名与对端对象摘要。"""
         async with self._pool.connection() as conn:

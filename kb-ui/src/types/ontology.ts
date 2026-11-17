@@ -151,6 +151,32 @@ export interface LibrarySchema {
   }>
 }
 
+// ── 实例图（68号 §2.2）──
+
+/** 图节点：不带 attributes_json（点击后走 getObject 拉详情）。 */
+export interface GraphNode {
+  id: string
+  name: string
+  ontology_id: string
+  ontology_name: string
+}
+
+export interface GraphEdge {
+  id: string
+  source: string
+  target: string
+  ontology_relation_id: string
+  relation_name: string
+}
+
+export interface LibraryGraph {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  /** 过滤前库内对象总数（护栏横幅提示用）。 */
+  total_objects: number
+  truncated: boolean
+}
+
 // ── 批量导入（67号 §七 两步式）──
 
 /** 上传解析的列元信息（首列样例值）。 */

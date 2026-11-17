@@ -25,6 +25,7 @@ import type {
   OntologyObjectRow,
   OntologyObjectsPage,
   OntologyRelation,
+  LibraryGraph,
   SemanticRelationRow,
   SemanticRelationsPage,
 } from '@/types/ontology'
@@ -332,6 +333,22 @@ export function useOntologyApi() {
     return data as LibrarySchema
   }
 
+  /** 实例图全量（68号 §2.1）：ontology_ids 过滤 + limit 节点护栏。 */
+  async function getLibraryGraph(
+    libraryId: string,
+    params?: { ontology_ids?: string[]; limit?: number },
+  ): Promise<LibraryGraph> {
+    const query: Record<string, string | number> = {}
+    if (params?.ontology_ids?.length) {
+      query.ontology_ids = params.ontology_ids.join(',')
+    }
+    if (params?.limit) query.limit = params.limit
+    const { data } = await client.get(
+      `/api/kb/ontology/libraries/${libraryId}/graph`,
+      { params: Object.keys(query).length ? query : undefined })
+    return data as LibraryGraph
+  }
+
   return {
     listLibraries,
     getLibrary,
@@ -365,5 +382,6 @@ export function useOntologyApi() {
     listSemanticRelations,
     deleteSemanticRelation,
     getLibrarySchema,
+    getLibraryGraph,
   }
 }

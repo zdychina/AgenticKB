@@ -716,3 +716,21 @@ async def get_library_schema(
         return await svc.get_library_schema(library_id, user=user)
     except Exception as exc:
         raise _map_error(exc) from exc
+
+
+@router.get("/libraries/{library_id}/graph")
+async def get_library_graph(
+    library_id: str,
+    ontology_ids: str | None = Query(
+        None, description="逗号分隔的本体 id，只保留这些本体的对象"),
+    limit: int = Query(2000, ge=1, le=2000),
+    user: dict = Depends(current_user),
+    svc: OntologyService = Depends(get_ontology_service),
+) -> dict:
+    ids = [s.strip() for s in (ontology_ids or "").split(",") if s.strip()]
+    try:
+        return await svc.get_library_graph(
+            library_id, ontology_ids=ids or None, limit=limit, user=user,
+        )
+    except Exception as exc:
+        raise _map_error(exc) from exc

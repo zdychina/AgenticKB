@@ -764,6 +764,16 @@ class OntologyService:
         await self._get_library_checked(library_id, user)
         return await self._db.get_library_schema(library_id)
 
+    async def get_library_graph(
+        self, library_id: str, *, ontology_ids: list[str] | None, limit: int,
+        user: dict[str, Any],
+    ) -> dict[str, Any]:
+        """实例图全量（68号 §2.1）：读权限对齐 schema——域成员可看。"""
+        await self._get_library_checked(library_id, user)
+        return await self._db.get_library_graph(
+            library_id, ontology_ids=ontology_ids, limit=limit,
+        )
+
     async def get_object_neighbors(
         self, object_id: str, *, user: dict[str, Any],
     ) -> dict[str, Any]:
