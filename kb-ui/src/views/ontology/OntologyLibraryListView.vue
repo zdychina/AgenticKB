@@ -147,6 +147,7 @@ async function save() {
       await api.updateLibrary(editingId.value, payload)
     } else {
       await api.createLibrary(payload)
+      keyword.value = ''  // 清掉搜索词，新建的库立即可见（对齐对象页回归）
     }
     dialogVisible.value = false
     ElMessage.success('已保存')

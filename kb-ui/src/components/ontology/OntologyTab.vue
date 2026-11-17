@@ -244,6 +244,7 @@ async function create() {
     })
     createVisible.value = false
     ElMessage.success('本体已创建')
+    keyword.value = ''  // 清掉名称过滤，保证新本体立即可见（对齐对象页回归）
     emit('refresh')
   } catch (error) {
     ElMessage.error(`创建失败：${await apiErrorDetail(error)}`)

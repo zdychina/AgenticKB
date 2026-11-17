@@ -37,11 +37,15 @@ interface ObjectTabVm {
   textSlots: Record<string, string>
   numberSlots: Record<string, number | undefined>
   boolSlots: Record<string, boolean>
+  edgeForm: { direction: 'out' | 'in'; relationId: string; otherObjectId: string }
   openCreate: () => void
   openEdit: (row: { id: string }) => Promise<void>
   onFormOntologyChange: (ontologyId: string) => Promise<void>
   collectAttributes: () => Record<string, unknown>
   save: () => Promise<void>
+  search: () => void
+  reload: () => Promise<void>
+  remove: (row: { id: string; name: string }) => Promise<void>
 }
 
 const ontologies = [
@@ -287,5 +291,54 @@ describe('object tab — 新建后立即可见（回归：留存筛选曾把新�
 
     expect(vm.filterOntologyId).toBe('onto-device')
     expect(vm.items.map(r => r.name)).toContain('SMF')
+  })
+
+  it('筛选/搜索变化回第一页（残留页码的 offset 会落在空页上）', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ObjectTabVm
+    vm.page = 3
+    vm.keyword = 'AMF'
+
+    vm.search()
+    await flushPromises()
+
+    expect(vm.page).toBe(1)
+    const lastCall = state.api.listObjects.mock.calls.at(-1)
+    expect(lastCall?.[1]).toMatchObject({ q: 'AMF', offset: 0 })
+  })
+
+  it('删除页内最后一条时回退一页，不停留在空页', async () => {
+    for (let i = 0; i < 20; i++) db.push({ id: `obj-b${i}`, ontology_id: 'onto-device', name: `网元${i}` })
+    state.api.deleteObject.mockReset().mockImplementation(async (id: string) => {
+      db = db.filter(r => r.id !== id)
+    })
+    state.ui.confirm.mockReset().mockResolvedValue(undefined)
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ObjectTabVm
+
+    vm.page = 2
+    await vm.reload()
+    expect(vm.items).toHaveLength(1)   // 21 条 → 第 2 页只剩 1 条
+
+    await vm.remove(vm.items[0])
+    await flushPromises()
+
+    expect(vm.page).toBe(1)
+    expect(vm.items).toHaveLength(20)
+  })
+
+  it('建边对话框切换方向后清掉已选的关系类型与对端', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ObjectTabVm
+
+    vm.edgeForm = { direction: 'out', relationId: 'rel-supports', otherObjectId: 'obj-1' }
+    vm.edgeForm.direction = 'in'
+    await flushPromises()
+
+    expect(vm.edgeForm.relationId).toBe('')
+    expect(vm.edgeForm.otherObjectId).toBe('')
   })
 })

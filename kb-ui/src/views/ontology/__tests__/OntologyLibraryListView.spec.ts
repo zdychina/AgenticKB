@@ -32,6 +32,7 @@ interface ListVm {
   libraries: Array<{ id: string; name: string }>
   canWrite: boolean
   emptyText: string
+  keyword: string
   form: { name: string; description: string }
   dialogVisible: boolean
   openCreate: () => void
@@ -180,5 +181,28 @@ describe('ontology library list view（67号 P1）', () => {
     expect(state.router.push).toHaveBeenCalledWith({
       name: 'ontology-library-detail', params: { libraryId: 'lib-1' },
     })
+  })
+
+  it('新建后清掉留存搜索词，新库立即可见（回归：曾须 F5 才显示）', async () => {
+    const rows = libraries.map(l => ({ ...l }))
+    state.api.listLibraries.mockReset().mockImplementation(async (q?: string) =>
+      rows.filter(l => !q || l.name.includes(q)))
+    state.api.createLibrary.mockReset().mockImplementation(async (payload: { name: string }) => {
+      const row = { ...rows[1], id: 'lib-3', name: payload.name }
+      rows.push(row)
+      return row
+    })
+    const wrapper = mountList()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ListVm
+    vm.keyword = '设备'
+
+    vm.openCreate()
+    vm.form = { name: '场景本体', description: '' }
+    await vm.save()
+    await flushPromises()
+
+    expect(vm.keyword).toBe('')
+    expect(vm.libraries.map(l => l.name)).toContain('场景本体')
   })
 })

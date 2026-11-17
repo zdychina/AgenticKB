@@ -7,7 +7,7 @@
         clearable
         placeholder="本体：全部"
         data-test="filter-object-ontology"
-        @change="reload"
+        @change="search"
       >
         <el-option v-for="o in ontologies" :key="o.id" :value="o.id" :label="o.name" />
       </el-select>
@@ -17,10 +17,10 @@
         placeholder="对象名称搜索"
         clearable
         data-test="filter-object-name"
-        @keyup.enter="reload"
-        @clear="reload"
+        @keyup.enter="search"
+        @clear="search"
       />
-      <el-button :loading="loading" @click="reload">查询</el-button>
+      <el-button :loading="loading" @click="search">查询</el-button>
       <div class="obj-tab__spacer" />
       <el-button
         v-if="canWrite"
@@ -258,7 +258,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
@@ -307,6 +307,12 @@ async function reload() {
   } finally {
     loading.value = false
   }
+}
+
+/** 筛选条件变化后查询：回第一页（残留页码的 offset 会落在过滤结果的空页上）。 */
+function search() {
+  page.value = 1
+  void reload()
 }
 
 function onPageChange(next: number) {
@@ -493,6 +499,8 @@ async function remove(row: OntologyObjectRow) {
   try {
     await api.deleteObject(row.id)
     ElMessage.success('已删除')
+    // 删掉页内最后一条时回退一页，避免停留在空页
+    if (page.value > 1 && items.value.length === 1) page.value -= 1
     await reload()
     emit('refresh')
   } catch (error) {
@@ -568,6 +576,12 @@ const edgeSearching = ref(false)
 const otherObjects = ref<OntologyObjectRow[]>([])
 const edgeForm = ref<{ direction: 'out' | 'in'; relationId: string; otherObjectId: string }>({
   direction: 'out', relationId: '', otherObjectId: '',
+})
+
+/** 切方向 = 换端点约束：已选的关系类型/对端不再属于候选，须清掉（否则下拉显示原始 id）。 */
+watch(() => edgeForm.value.direction, () => {
+  edgeForm.value.relationId = ''
+  edgeForm.value.otherObjectId = ''
 })
 
 /** 当前对象可用的关系类型：按方向过滤端点本体匹配。 */
