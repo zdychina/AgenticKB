@@ -3,8 +3,10 @@
     <!-- 卡① 选本体与文件：上传 → import_token + 列清单 + 自动映射预选 -->
     <el-card class="obj-import__step" shadow="never">
       <template #header>
-        <b>① 选择本体与文件</b>
-        <span class="obj-import__hint">（.csv / .xlsx，≤10MB，≤5000 数据行；解析后 1 小时内有效）</span>
+        <div class="kb-step">
+          <span class="kb-step__no">1</span>选择本体与文件
+          <span class="kb-step__hint">.csv / .xlsx，≤10MB，≤5000 数据行；解析后 1 小时内有效</span>
+        </div>
       </template>
       <div class="obj-import__pick">
         <span class="obj-import__label">目标本体：</span>
@@ -40,8 +42,10 @@
     <!-- 卡② 列映射：对象名列（必选）+ 每个属性定义选一个来源列 -->
     <el-card v-if="upload" class="obj-import__step" shadow="never">
       <template #header>
-        <b>② 列映射</b>
-        <span class="obj-import__hint">（列名与属性名相同的已自动预选；未映射的属性留空）</span>
+        <div class="kb-step">
+          <span class="kb-step__no">2</span>列映射
+          <span class="kb-step__hint">列名与属性名相同的已自动预选；未映射的属性留空</span>
+        </div>
       </template>
       <div class="obj-import__name-row">
         <span class="obj-import__label">对象名列：</span>
@@ -112,7 +116,7 @@
     <!-- 卡③ 结果：成功计数 / 422 逐行报告（可导出 CSV，返回调整映射） -->
     <el-card v-if="result || report" class="obj-import__step" shadow="never">
       <template #header>
-        <b>③ 导入结果</b>
+        <div class="kb-step"><span class="kb-step__no">3</span>导入结果</div>
       </template>
       <template v-if="result">
         <el-alert type="success" :closable="false" :title="`已导入 ${result.imported} 个对象（来源：导入）`" />
@@ -328,7 +332,12 @@ defineExpose({
 
 <style scoped>
 .obj-import { display: flex; flex-direction: column; gap: 12px; }
-.obj-import__step :deep(.el-card__header) { padding: 10px 16px; }
+.obj-import__step :deep(.el-card__header) {
+  padding: 10px 16px;
+  background: var(--kb-bg-card-hover);
+  border-bottom: 1px solid var(--kb-border-light);
+}
+.obj-import__step :deep(.el-card__body) { padding: 14px 16px; }
 .obj-import__hint { font-size: 12px; color: var(--kb-text-tertiary); font-weight: normal; }
 .obj-import__file { margin-left: 10px; font-size: 12.5px; color: var(--kb-text-tertiary); }
 .obj-import__pick { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }

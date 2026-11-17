@@ -62,7 +62,13 @@
       </template>
     </EmptyState>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑本体库' : '新建本体库'" width="500px">
+    <el-dialog v-model="dialogVisible" width="500px">
+      <template #header>
+        <div class="kb-dialog-title">
+          <el-icon><component :is="editingId ? Edit : FolderAdd" /></el-icon>
+          {{ editingId ? '编辑本体库' : '新建本体库' }}
+        </div>
+      </template>
       <el-form label-width="70px">
         <el-form-item label="名称">
           <el-input v-model="form.name" placeholder="如：核心网知识本体" maxlength="80" data-test="library-name" />
@@ -71,7 +77,7 @@
           <el-input v-model="form.description" type="textarea" :rows="3" placeholder="这个库覆盖什么主题（可选）" />
         </el-form-item>
       </el-form>
-      <p v-if="!editingId" class="onto-list__hint">库将创建到当前知识域：{{ domainStore.currentDomain || '未选择' }}（域内名称唯一）。</p>
+      <p v-if="!editingId" class="kb-note">库将创建到当前知识域：<b>{{ domainStore.currentDomain || '未选择' }}</b>（域内名称唯一）。</p>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" data-test="submit-library" @click="save">保存</el-button>
@@ -84,7 +90,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Edit, FolderAdd, Plus, Search } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import { useAuthStore } from '@/stores/auth'
@@ -309,5 +315,4 @@ watch(() => domainStore.currentDomain, load)
   border-top: 1px dashed var(--kb-border-light);
 }
 
-.onto-list__hint { color: var(--kb-text-tertiary); font-size: 12px; margin: 6px 0 0 70px; }
 </style>

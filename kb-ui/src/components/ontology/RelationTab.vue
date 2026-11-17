@@ -44,7 +44,13 @@
       </template>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑关系类型' : '新建关系类型'" width="500px">
+    <el-dialog v-model="dialogVisible" width="500px">
+      <template #header>
+        <div class="kb-dialog-title">
+          <el-icon><component :is="editingId ? Edit : Connection" /></el-icon>
+          {{ editingId ? '编辑关系类型' : '新建关系类型' }}
+        </div>
+      </template>
       <el-form label-width="80px">
         <el-form-item label="名称">
           <el-input v-model="form.name" placeholder="如：承载、作用于" maxlength="80" data-test="relation-name" />
@@ -63,7 +69,7 @@
           <el-input v-model="form.description" type="textarea" :rows="2" placeholder="这条边表达什么语义（可选）" />
         </el-form-item>
       </el-form>
-      <p class="rel-tab__hint">源=目标 时为自环类型（如「设备—互备—设备」）；库内名称唯一；改端点在已有实例时会被拒绝。</p>
+      <p class="kb-note">源 = 目标时为自环类型（如「设备—互备—设备」）；库内名称唯一；改端点在已有实例时会被拒绝。</p>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" data-test="submit-relation" @click="save">保存</el-button>
@@ -75,7 +81,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Connection, Edit, Plus } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -178,5 +184,4 @@ async function remove(row: OntologyRelation) {
   font-weight: 700;
 }
 
-.rel-tab__hint { color: var(--kb-text-tertiary); font-size: 12px; margin: 4px 0 0 80px; }
 </style>

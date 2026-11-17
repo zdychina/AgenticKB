@@ -3,8 +3,10 @@
     <!-- ① 本体选择 + 建议关系开关 -->
     <el-card class="ext-wiz__step" shadow="never">
       <template #header>
-        <b>① 选择本体</b>
-        <span class="ext-wiz__hint">（抽取的对象实例将落入选中的本体）</span>
+        <div class="kb-step">
+          <span class="kb-step__no">1</span>选择本体
+          <span class="kb-step__hint">抽取的对象实例将落入选中的本体</span>
+        </div>
       </template>
       <div class="ext-wiz__pick">
         <span class="ext-wiz__label">目标本体：</span>
@@ -26,8 +28,10 @@
     <!-- ② 输入源三选一：粘贴 / 上传 txt-md / KB 文档 -->
     <el-card class="ext-wiz__step" shadow="never">
       <template #header>
-        <b>② 输入源</b>
-        <span class="ext-wiz__hint">（粘贴或上传 ≤20000 字符；KB 文档超限自动截断）</span>
+        <div class="kb-step">
+          <span class="kb-step__no">2</span>输入源
+          <span class="kb-step__hint">粘贴或上传 ≤20000 字符；KB 文档超限自动截断</span>
+        </div>
       </template>
       <el-radio-group v-model="sourceKind" data-test="extract-source-kind" :disabled="extracting">
         <el-radio value="text">粘贴文本</el-radio>
@@ -115,15 +119,17 @@
 
     <!-- ③ 抽取失败（LLM 错误原样带回，不自动重试） -->
     <el-card v-if="extractError" class="ext-wiz__step" shadow="never">
-      <template #header><b>③ 抽取失败</b></template>
+      <template #header><div class="kb-step"><span class="kb-step__no">3</span>抽取失败</div></template>
       <el-alert type="error" :closable="false" title="LLM 抽取失败，可重试或调整源文本" :description="extractError" />
     </el-card>
 
     <!-- ④ 候选确认：对象（行内编辑+勾选+冲突标黄）/ 关系（勾选+端点标红） -->
     <el-card v-if="candidates" class="ext-wiz__step" shadow="never">
       <template #header>
-        <b>④ 确认候选</b>
-        <span class="ext-wiz__hint">（已选 {{ selectedObjects.length }} 对象 / {{ selectedRelations.length }} 关系）</span>
+        <div class="kb-step">
+          <span class="kb-step__no">4</span>确认候选
+          <span class="kb-step__hint">已选 {{ selectedObjects.length }} 对象 / {{ selectedRelations.length }} 关系</span>
+        </div>
       </template>
       <el-alert
         v-for="(warning, i) in candidates.warnings"
@@ -171,7 +177,7 @@
       </el-table>
 
       <template v-if="suggestRelations">
-        <p class="ext-wiz__section-title">关系候选</p>
+        <p class="kb-section-title ext-wiz__section-title">关系候选</p>
         <el-table
           v-if="candidates.relations.length"
           :data="relationRows"
@@ -221,7 +227,7 @@
 
     <!-- ⑤ 结果：成功计数 / 422 定位报告 -->
     <el-card v-if="result || report" class="ext-wiz__step" shadow="never">
-      <template #header><b>⑤ 落库结果</b></template>
+      <template #header><div class="kb-step"><span class="kb-step__no">5</span>落库结果</div></template>
       <template v-if="result">
         <el-alert
           type="success"
@@ -617,7 +623,12 @@ defineExpose({
 
 <style scoped>
 .ext-wiz { display: flex; flex-direction: column; gap: 12px; }
-.ext-wiz__step :deep(.el-card__header) { padding: 10px 16px; }
+.ext-wiz__step :deep(.el-card__header) {
+  padding: 10px 16px;
+  background: var(--kb-bg-card-hover);
+  border-bottom: 1px solid var(--kb-border-light);
+}
+.ext-wiz__step :deep(.el-card__body) { padding: 14px 16px; }
 .ext-wiz__hint { font-size: 12px; color: var(--kb-text-tertiary); font-weight: normal; }
 .ext-wiz__hint--warn { color: var(--el-color-warning); }
 .ext-wiz__file { margin-left: 10px; font-size: 12.5px; color: var(--kb-text-tertiary); }
@@ -632,7 +643,7 @@ defineExpose({
 .ext-wiz__attrs { display: flex; flex-direction: column; gap: 4px; }
 .ext-wiz__attr { display: flex; align-items: center; gap: 6px; }
 .ext-wiz__attr-key { min-width: 72px; font-size: 12px; color: var(--kb-text-tertiary); }
-.ext-wiz__section-title { margin: 12px 0 6px; font-size: 13px; font-weight: 600; }
+.ext-wiz__section-title { margin: 14px 0 6px; }
 .ext-wiz__rel-tag { margin: 0 4px; }
 .ext-wiz__ok { font-size: 12.5px; color: var(--el-color-success); }
 </style>

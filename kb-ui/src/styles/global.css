@@ -148,3 +148,62 @@ body {
   background: var(--kb-accent);
 }
 
+/* 对话框标题：图标 + 文案（el-dialog/el-drawer 的 #header 插槽内容） */
+.kb-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--kb-text-primary);
+}
+
+.kb-dialog-title .el-icon {
+  color: var(--kb-accent);
+  font-size: 17px;
+}
+
+/* 表单里的说明条：重要口径/约束用，比灰色小字更醒目 */
+.kb-note {
+  margin: 4px 0 8px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--kb-accent);
+  border-radius: var(--kb-radius-sm);
+  background: var(--kb-accent-soft);
+  color: var(--kb-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* 向导步骤头：圆形序号徽章 + 标题 + 灰字约束 */
+.kb-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--kb-text-primary);
+}
+
+.kb-step__no {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--kb-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kb-step__hint {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--kb-text-tertiary);
+}
+
+

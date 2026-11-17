@@ -51,7 +51,10 @@
     </el-table>
 
     <!-- 新建本体：基本信息 + 初始属性（可动态增删行） -->
-    <el-dialog v-model="createVisible" title="新建本体" width="560px">
+    <el-dialog v-model="createVisible" width="560px">
+      <template #header>
+        <div class="kb-dialog-title"><el-icon><Plus /></el-icon>新建本体</div>
+      </template>
       <el-form label-width="70px">
         <el-form-item label="名称">
           <el-input v-model="createForm.name" placeholder="如：设备" maxlength="80" data-test="ontology-name" />
@@ -62,6 +65,7 @@
         <el-form-item label="初始属性">
           <div class="onto-tab__attrs">
             <div v-for="(attr, i) in createForm.attributes" :key="i" class="onto-tab__attr-row">
+              <span class="onto-tab__attr-index">{{ i + 1 }}</span>
               <el-input v-model="attr.name" placeholder="属性名" maxlength="80" />
               <el-input v-model="attr.description" placeholder="说明（可选）" maxlength="2000" />
               <el-button link type="danger" @click="createForm.attributes.splice(i, 1)">移除</el-button>
@@ -79,7 +83,10 @@
     </el-dialog>
 
     <!-- 编辑基本信息（属性在详情对话框管理） -->
-    <el-dialog v-model="editVisible" title="编辑本体" width="480px">
+    <el-dialog v-model="editVisible" width="480px">
+      <template #header>
+        <div class="kb-dialog-title"><el-icon><Edit /></el-icon>编辑本体</div>
+      </template>
       <el-form label-width="70px">
         <el-form-item label="名称">
           <el-input v-model="editForm.name" maxlength="80" />
@@ -96,8 +103,8 @@
 
     <!-- 本体详情：基本信息 + 属性管理（增删改 + 上移下移）+ 参与的关系类型 -->
     <el-dialog v-model="detailVisible" width="720px" top="6vh">
-      <template #title>
-        <span class="onto-tab__detail-title">本体：{{ detail?.name }}</span>
+      <template #header>
+        <div class="kb-dialog-title"><el-icon><Collection /></el-icon>本体：{{ detail?.name }}</div>
       </template>
       <div v-if="detail" v-loading="detailLoading" class="onto-tab__detail">
         <div class="onto-tab__detail-meta">
@@ -136,7 +143,7 @@
           <el-input v-model="newAttrDescription" placeholder="说明（可选）" maxlength="2000" />
           <el-button type="primary" :loading="saving" data-test="add-attribute" @click="addAttribute">添加属性</el-button>
         </div>
-        <p class="onto-tab__hint">属性无类型系统：值为自由文本/数字/布尔；改名会同步迁移对象存量键，删除会清理存量键（同事务）。</p>
+        <p class="kb-note">属性无类型系统：值为自由文本/数字/布尔；改名会同步迁移对象存量键，删除会清理存量键（同事务）。</p>
 
         <h4 class="kb-section-title">参与的关系类型</h4>
         <el-table :data="detail.ontology_relations" size="small">
@@ -163,7 +170,10 @@
     </el-dialog>
 
     <!-- 属性编辑（改名迁移键 / 改说明） -->
-    <el-dialog v-model="attrEditVisible" title="编辑属性" width="440px" append-to-body>
+    <el-dialog v-model="attrEditVisible" width="440px" append-to-body>
+      <template #header>
+        <div class="kb-dialog-title"><el-icon><EditPen /></el-icon>编辑属性</div>
+      </template>
       <el-form label-width="70px">
         <el-form-item label="名称">
           <el-input v-model="attrEditForm.name" maxlength="80" />
@@ -172,7 +182,7 @@
           <el-input v-model="attrEditForm.description" type="textarea" :rows="2" />
         </el-form-item>
       </el-form>
-      <p class="onto-tab__hint">改名将在同一事务里迁移对象的存量属性键，值保持不变。</p>
+      <p class="kb-note">改名将在同一事务里迁移对象的存量属性键，值保持不变。</p>
       <template #footer>
         <el-button @click="attrEditVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveAttribute">保存</el-button>
@@ -184,7 +194,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Collection, Edit, EditPen, Plus, Search } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -437,10 +447,29 @@ function formatTime(value: string | null): string {
 .onto-tab__search { width: 240px; }
 .onto-tab__btn-icon { margin-right: 4px; }
 .onto-tab__attrs { width: 100%; display: flex; flex-direction: column; gap: 8px; }
-.onto-tab__attr-row { display: flex; gap: 8px; align-items: center; }
-.onto-tab__attr-row .el-input:first-child { width: 180px; flex: none; }
+
+/* 初始属性行：序号徽章 + 浅分隔，成组可扫读 */
+.onto-tab__attr-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--kb-border-light);
+  border-radius: var(--kb-radius-sm);
+  background: var(--kb-bg-card);
+}
+.onto-tab__attr-row .el-input { flex: 1; }
+.onto-tab__attr-row .el-input:not(:last-of-type) { flex: none; width: 180px; }
+.onto-tab__attr-index {
+  width: 20px; height: 20px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--kb-bg-page);
+  color: var(--kb-text-secondary);
+  font-size: 11px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 .onto-tab__detail { max-height: 64vh; overflow-y: auto; }
-.onto-tab__detail-title { font-weight: 650; }
 .onto-tab__detail-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .onto-tab__detail-desc { color: var(--kb-text-tertiary); font-size: 13px; }
 

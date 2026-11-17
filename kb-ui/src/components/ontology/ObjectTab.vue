@@ -28,13 +28,13 @@
         :disabled="ontologies.length < 1"
         data-test="import-objects"
         @click="importVisible = true"
-      >批量导入</el-button>
+      ><el-icon class="obj-tab__btn-icon"><Upload /></el-icon>批量导入</el-button>
       <el-button
         v-if="canWrite"
         :disabled="ontologies.length < 1"
         data-test="extract-objects"
         @click="extractVisible = true"
-      >AI 抽取</el-button>
+      ><el-icon class="obj-tab__btn-icon"><MagicStick /></el-icon>AI 抽取</el-button>
       <el-button
         v-if="canWrite"
         type="primary"
@@ -90,7 +90,13 @@
     />
 
     <!-- 新建 / 编辑对象：动态属性表单（属性定义驱动，值=自由标量） -->
-    <el-dialog v-model="formVisible" :title="editingId ? '编辑对象' : '新建对象'" width="560px">
+    <el-dialog v-model="formVisible" width="560px">
+      <template #header>
+        <div class="kb-dialog-title">
+          <el-icon><component :is="editingId ? Edit : Plus" /></el-icon>
+          {{ editingId ? '编辑对象' : '新建对象' }}
+        </div>
+      </template>
       <el-form label-width="90px">
         <el-form-item v-if="!editingId" label="本体">
           <el-select
@@ -136,9 +142,9 @@
             </div>
           </el-form-item>
         </template>
-        <p v-else class="obj-tab__hint">该本体尚未定义属性，仅创建命名对象。</p>
+        <p v-else class="kb-note">该本体尚未定义属性，仅创建命名对象。</p>
       </el-form>
-      <p class="obj-tab__hint">属性无类型：按存量值形态渲染（布尔/数字/文本）；留空 = 不写该键。</p>
+      <p class="kb-note">属性无类型：按存量值形态渲染（布尔/数字/文本）；留空 = 不写该键。</p>
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" data-test="submit-object" @click="save">保存</el-button>
@@ -189,7 +195,10 @@
     </el-drawer>
 
     <!-- 建立语义关系：方向 + 关系类型（端点过滤）+ 对端对象（远程搜索） -->
-    <el-dialog v-model="edgeVisible" title="建立语义关系" width="520px" append-to-body>
+    <el-dialog v-model="edgeVisible" width="520px" append-to-body>
+      <template #header>
+        <div class="kb-dialog-title"><el-icon><Connection /></el-icon>建立语义关系</div>
+      </template>
       <el-form label-width="90px">
         <el-form-item label="方向">
           <el-radio-group v-model="edgeForm.direction">
@@ -231,8 +240,8 @@
               :label="o.name"
             />
           </el-select>
-          <div v-if="otherOntologyId" class="obj-tab__hint">
-            对端限定本体：{{ ontologyName(otherOntologyId) }}
+          <div v-if="otherOntologyId" class="kb-note">
+            对端限定本体：<b>{{ ontologyName(otherOntologyId) }}</b>
           </div>
         </el-form-item>
       </el-form>
@@ -243,12 +252,18 @@
     </el-dialog>
 
     <!-- 批量导入向导（67号 §七 两步式：上传解析 → 列映射 → 提交/报告） -->
-    <el-drawer v-model="importVisible" size="680px" title="批量导入对象" destroy-on-close>
+    <el-drawer v-model="importVisible" size="680px" destroy-on-close>
+      <template #header>
+        <div class="kb-dialog-title"><el-icon><Upload /></el-icon>批量导入对象</div>
+      </template>
       <OntologyImportWizard :ontologies="ontologies" @imported="onImported" />
     </el-drawer>
 
     <!-- AI 抽取向导（67号 §八 五步：本体 → 输入源 → 轮询 → 候选确认 → 落库） -->
-    <el-drawer v-model="extractVisible" size="720px" title="AI 抽取对象" destroy-on-close>
+    <el-drawer v-model="extractVisible" size="720px" destroy-on-close>
+      <template #header>
+        <div class="kb-dialog-title"><el-icon><MagicStick /></el-icon>AI 抽取对象</div>
+      </template>
       <OntologyExtractWizard
         :library-id="libraryId"
         :ontologies="ontologies"
@@ -261,7 +276,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Connection, Edit, MagicStick, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
