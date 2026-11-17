@@ -60,7 +60,7 @@
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑本体库' : '新建本体库'" width="500px">
       <el-form label-width="70px">
         <el-form-item label="名称">
-          <el-input v-model="form.name" placeholder="如：药品知识本体" maxlength="80" data-test="library-name" />
+          <el-input v-model="form.name" placeholder="如：核心网知识本体" maxlength="80" data-test="library-name" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="3" placeholder="这个库覆盖什么主题（可选）" />

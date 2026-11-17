@@ -77,7 +77,7 @@ async def _make_target(svc, admin: dict) -> tuple[str, dict]:
     onto = await svc.create_ontology(
         lib["id"], name=f"本体-{uuid.uuid4().hex[:4]}", description=None,
         attributes=[
-            {"name": "适应症"}, {"name": "剂量"}, {"name": "处方药"},
+            {"name": "厂商"}, {"name": "端口数"}, {"name": "在网状态"},
         ],
         user=admin,
     )
@@ -122,24 +122,24 @@ async def test_upload_parse_csv_with_detected_mapping(async_pool) -> None:
     ontology_id, _ = await _make_target(svc, admin)
 
     content = _csv_bytes(
-        "名称,适应症,备注列\n"
-        "阿司匹林,发热,仅备注\n"
-        "布洛芬,止痛, \n"
+        "名称,厂商,备注列\n"
+        "AMF,华为,仅备注\n"
+        "SMF,中兴, \n"
         "\n"  # 全空行跳过
     )
     result = await imp.parse_upload(
         svc, ontology_id=ontology_id, file_bytes=content,
-        file_name="药品.csv", user=admin,
+        file_name="设备.csv", user=admin,
     )
 
     assert result["row_count"] == 2
-    assert [c["name"] for c in result["columns"]] == ["名称", "适应症", "备注列"]
-    assert result["columns"][0]["sample"] == "阿司匹林"
+    assert [c["name"] for c in result["columns"]] == ["名称", "厂商", "备注列"]
+    assert result["columns"][0]["sample"] == "AMF"
     assert len(result["preview_rows"]) == 2
-    # 自动映射：名称列同义词命中；适应症列与属性定义名精确匹配
+    # 自动映射：名称列同义词命中；厂商列与属性定义名精确匹配
     assert result["detected_mapping"] == {
         "name_column": "名称",
-        "attribute_columns": {"适应症": "适应症"},
+        "attribute_columns": {"厂商": "厂商"},
     }
 
 
@@ -149,7 +149,7 @@ async def test_upload_parse_csv_bom_and_utf8_guard(async_pool) -> None:
     admin = await _make_admin(async_pool)
     ontology_id, _ = await _make_target(svc, admin)
 
-    bom = "﻿名称,适应症\n阿司匹林,发热\n".encode("utf-8")
+    bom = "﻿名称,厂商\nAMF,华为\n".encode("utf-8")
     result = await imp.parse_upload(
         svc, ontology_id=ontology_id, file_bytes=bom,
         file_name="bom.csv", user=admin,
@@ -172,18 +172,18 @@ async def test_upload_parse_xlsx_keeps_native_types(async_pool) -> None:
     ontology_id, _ = await _make_target(svc, admin)
 
     content = _xlsx_bytes([
-        ["药品名称", "剂量", "处方药"],
-        ["阿司匹林", 100, True],
-        ["布洛芬", 200.5, False],
+        ["设备名称", "端口数", "在网状态"],
+        ["AMF", 100, True],
+        ["SMF", 200.5, False],
     ])
     result = await imp.parse_upload(
         svc, ontology_id=ontology_id, file_bytes=content,
-        file_name="药品.xlsx", user=admin,
+        file_name="设备.xlsx", user=admin,
     )
     assert result["row_count"] == 2
     row = result["preview_rows"][0]
-    assert row["剂量"] == 100          # 数值格 → number（预览即原生类型）
-    assert row["处方药"] is True       # 布尔格 → boolean
+    assert row["端口数"] == 100          # 数值格 → number（预览即原生类型）
+    assert row["在网状态"] is True       # 布尔格 → boolean
 
 
 async def test_upload_guards(async_pool) -> None:
@@ -206,7 +206,7 @@ async def test_upload_guards(async_pool) -> None:
         )
     assert excinfo.value.code == "invalid_xlsx"
 
-    rows = "\n".join(f"名称,适应症\n药{i},发热" for i in range(5001))
+    rows = "\n".join(f"名称,厂商\n网元{i},华为" for i in range(5001))
     with pytest.raises(OntologyImportError) as excinfo:
         await imp.parse_upload(
             svc, ontology_id=ontology_id, file_bytes=rows.encode(),
@@ -231,21 +231,21 @@ async def test_commit_import_success_and_value_matrix(async_pool) -> None:
     admin = await _make_admin(async_pool)
     ontology_id, _ = await _make_target(svc, admin)
 
-    # 列名与属性名故意错开（用量→剂量）：证明列→属性映射生效
+    # 列名与属性名故意错开（槽位数→端口数）：证明列→属性映射生效
     content = _xlsx_bytes([
-        ["药品名称", "适应症", "用量", "处方药"],
-        ["阿司匹林", "发热", 100, True],
-        ["布洛芬", None, "  饭后服用  ", False],
+        ["设备名称", "厂商", "槽位数", "在网状态"],
+        ["AMF", "华为", 100, True],
+        ["SMF", None, "  双栈接入  ", False],
     ])
     upload = await imp.parse_upload(
         svc, ontology_id=ontology_id, file_bytes=content,
-        file_name="药品.xlsx", user=admin,
+        file_name="设备.xlsx", user=admin,
     )
     result = await imp.commit_import(
         svc, ontology_id=ontology_id,
         import_token=upload["import_token"],
-        name_column="药品名称",
-        attribute_columns={"适应症": "适应症", "用量": "剂量", "处方药": "处方药"},
+        name_column="设备名称",
+        attribute_columns={"厂商": "厂商", "槽位数": "端口数", "在网状态": "在网状态"},
         user=admin,
     )
     assert result == {"ontology_id": ontology_id, "imported": 2}
@@ -257,21 +257,21 @@ async def test_commit_import_success_and_value_matrix(async_pool) -> None:
         limit=50, offset=0, user=admin,
     )
     by_name = {o["name"]: o for o in objects["items"]}
-    assert set(by_name) == {"阿司匹林", "布洛芬"}
+    assert set(by_name) == {"AMF", "SMF"}
     assert all(o["source"] == "import" for o in by_name.values())
-    assert by_name["阿司匹林"]["attributes_json"] == {
-        "适应症": "发热", "剂量": 100, "处方药": True,
+    assert by_name["AMF"]["attributes_json"] == {
+        "厂商": "华为", "端口数": 100, "在网状态": True,
     }
-    # 空白格不写键（适应症缺失）；文本去首尾空白；布尔 false 保留
-    assert by_name["布洛芬"]["attributes_json"] == {
-        "剂量": "饭后服用", "处方药": False,
+    # 空白格不写键（厂商缺失）；文本去首尾空白；布尔 false 保留
+    assert by_name["SMF"]["attributes_json"] == {
+        "端口数": "双栈接入", "在网状态": False,
     }
 
     # token 一次性：成功后失效
     with pytest.raises(OntologyImportError) as excinfo:
         await imp.commit_import(
             svc, ontology_id=ontology_id, import_token=upload["import_token"],
-            name_column="药品名称", attribute_columns=None, user=admin,
+            name_column="设备名称", attribute_columns=None, user=admin,
         )
     assert excinfo.value.code == "preview_expired"
 
@@ -284,16 +284,16 @@ async def test_commit_validation_report_all_or_nothing(async_pool) -> None:
 
     # 预置一个已有对象 → duplicate_existing
     await svc.create_object(
-        ontology_id, name="阿司匹林", attributes={"适应症": "旧数据"},
+        ontology_id, name="AMF", attributes={"厂商": "旧数据"},
         user=admin,
     )
     content = _csv_bytes(
-        "名称,适应症\n"
-        "阿司匹林,重复\n"          # duplicate_existing（行1）
-        "布洛芬,止痛\n"            # OK
+        "名称,厂商\n"
+        "AMF,重复\n"          # duplicate_existing（行1）
+        "SMF,中兴\n"            # OK
         "   ,空名\n"               # empty_name（行3）
         f"{'长' * 201},超长\n"     # invalid_name（行4）
-        "布洛芬,批内重复\n"        # duplicate_in_batch（行5，与行2重名）
+        "SMF,批内重复\n"        # duplicate_in_batch（行5，与行2重名）
     )
     upload = await imp.parse_upload(
         svc, ontology_id=ontology_id, file_bytes=content,
@@ -303,7 +303,7 @@ async def test_commit_validation_report_all_or_nothing(async_pool) -> None:
         await imp.commit_import(
             svc, ontology_id=ontology_id,
             import_token=upload["import_token"], name_column="名称",
-            attribute_columns={"适应症": "适应症"}, user=admin,
+            attribute_columns={"厂商": "厂商"}, user=admin,
         )
     report = excinfo.value.report
     assert report["total_rows"] == 5
@@ -338,7 +338,7 @@ async def test_commit_mapping_and_binding_guards(async_pool) -> None:
 
     upload = await imp.parse_upload(
         svc, ontology_id=ontology_id,
-        file_bytes=_csv_bytes("名称,适应症\n阿司匹林,发热\n"),
+        file_bytes=_csv_bytes("名称,厂商\nAMF,华为\n"),
         file_name="a.csv", user=admin,
     )
     token = upload["import_token"]
@@ -355,7 +355,7 @@ async def test_commit_mapping_and_binding_guards(async_pool) -> None:
     with pytest.raises(OntologyImportError) as excinfo:
         await imp.commit_import(
             svc, ontology_id=ontology_id, import_token=token,
-            name_column="名称", attribute_columns={"适应症": "无此属性"},
+            name_column="名称", attribute_columns={"厂商": "无此属性"},
             user=admin,
         )
     assert excinfo.value.code == "unknown_attribute:无此属性"
@@ -365,23 +365,23 @@ async def test_commit_mapping_and_binding_guards(async_pool) -> None:
         await imp.commit_import(
             svc, ontology_id=ontology_id, import_token=token,
             name_column="名称",
-            attribute_columns={"无此列": "剂量"}, user=admin,
+            attribute_columns={"无此列": "端口数"}, user=admin,
         )
     assert excinfo.value.code == "unknown_column:无此列"
 
     # 两个列映射到同一属性（独立上传双列文件验证）
     two = await imp.parse_upload(
         svc, ontology_id=ontology_id,
-        file_bytes=_csv_bytes("名称,A列,B列\n阿司匹林,x,y\n"),
+        file_bytes=_csv_bytes("名称,A列,B列\nAMF,x,y\n"),
         file_name="two.csv", user=admin,
     )
     with pytest.raises(OntologyImportError) as excinfo:
         await imp.commit_import(
             svc, ontology_id=ontology_id, import_token=two["import_token"],
             name_column="名称",
-            attribute_columns={"A列": "适应症", "B列": "适应症"}, user=admin,
+            attribute_columns={"A列": "厂商", "B列": "厂商"}, user=admin,
         )
-    assert excinfo.value.code == "duplicate_attribute:适应症"
+    assert excinfo.value.code == "duplicate_attribute:厂商"
 
     # token 绑定失配：换另一个本体 → NotFound（不暴露登记）
     other_lib = await svc.create_library(
@@ -401,7 +401,7 @@ async def test_commit_mapping_and_binding_guards(async_pool) -> None:
     # 原绑定仍可提交（前面失败未消费 token）
     result = await imp.commit_import(
         svc, ontology_id=ontology_id, import_token=token,
-        name_column="名称", attribute_columns={"适应症": "适应症"},
+        name_column="名称", attribute_columns={"厂商": "厂商"},
         user=admin,
     )
     assert result["imported"] == 1

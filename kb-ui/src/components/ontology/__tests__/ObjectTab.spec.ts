@@ -42,15 +42,15 @@ interface ObjectTabVm {
 }
 
 const ontologies = [
-  { id: 'onto-drug', library_id: 'lib-1', name: '药品', description: null, created_at: '2026-11-17T08:00:00+00:00' },
-  { id: 'onto-disease', library_id: 'lib-1', name: '疾病', description: null, created_at: '2026-11-17T08:01:00+00:00' },
+  { id: 'onto-device', library_id: 'lib-1', name: '设备', description: null, created_at: '2026-11-17T08:00:00+00:00' },
+  { id: 'onto-feature', library_id: 'lib-1', name: '特性', description: null, created_at: '2026-11-17T08:01:00+00:00' },
 ]
 const relations = [
   {
-    id: 'rel-treats', library_id: 'lib-1', name: '治疗', description: null,
-    source_ontology_id: 'onto-drug', target_ontology_id: 'onto-disease',
+    id: 'rel-supports', library_id: 'lib-1', name: '支持', description: null,
+    source_ontology_id: 'onto-device', target_ontology_id: 'onto-feature',
     created_at: '2026-11-17T08:02:00+00:00',
-    source_ontology_name: '药品', target_ontology_name: '疾病', instance_count: 1,
+    source_ontology_name: '设备', target_ontology_name: '特性', instance_count: 1,
   },
 ]
 
@@ -70,8 +70,8 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
     state.api.listObjects.mockReset().mockResolvedValue({
       items: [
         {
-          id: 'obj-1', library_id: 'lib-1', ontology_id: 'onto-drug', ontology_name: '药品',
-          name: '阿司匹林', attributes_json: null, source: 'manual',
+          id: 'obj-1', library_id: 'lib-1', ontology_id: 'onto-device', ontology_name: '设备',
+          name: 'AMF', attributes_json: null, source: 'manual',
           created_by: 'u1', created_at: '2026-11-17T08:00:00+00:00',
           updated_at: '2026-11-17T08:00:00+00:00',
         },
@@ -79,12 +79,12 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
       total: 1,
     })
     state.api.getOntology.mockReset().mockResolvedValue({
-      id: 'onto-drug', library_id: 'lib-1', name: '药品', description: null,
+      id: 'onto-device', library_id: 'lib-1', name: '设备', description: null,
       created_at: '2026-11-17T08:00:00+00:00',
       attributes: [
-        { id: 'attr-1', name: '适应症', description: '适用症状', sort_order: 0 },
-        { id: 'attr-2', name: '剂量', description: null, sort_order: 1 },
-        { id: 'attr-3', name: '处方药', description: null, sort_order: 2 },
+        { id: 'attr-1', name: '厂商', description: '生产厂商', sort_order: 0 },
+        { id: 'attr-2', name: '端口数', description: null, sort_order: 1 },
+        { id: 'attr-3', name: '在网状态', description: null, sort_order: 2 },
       ],
       ontology_relations: [],
     })
@@ -115,11 +115,11 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
 
     vm.openCreate()
     expect(vm.formVisible).toBe(true)
-    vm.form.ontologyId = 'onto-drug'
-    await vm.onFormOntologyChange('onto-drug')
+    vm.form.ontologyId = 'onto-device'
+    await vm.onFormOntologyChange('onto-device')
 
-    expect(state.api.getOntology).toHaveBeenCalledWith('onto-drug')
-    expect(vm.form.attributeDefs.map(d => d.name)).toEqual(['适应症', '剂量', '处方药'])
+    expect(state.api.getOntology).toHaveBeenCalledWith('onto-device')
+    expect(vm.form.attributeDefs.map(d => d.name)).toEqual(['厂商', '端口数', '在网状态'])
   })
 
   it('collects only filled values — empty text keys are omitted', async () => {
@@ -128,19 +128,19 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
     const vm = wrapper.vm as unknown as ObjectTabVm
 
     vm.openCreate()
-    vm.form.ontologyId = 'onto-drug'
-    await vm.onFormOntologyChange('onto-drug')
+    vm.form.ontologyId = 'onto-device'
+    await vm.onFormOntologyChange('onto-device')
 
     // 新建无存量值 → 全部按文本槽（数字/布尔槽由编辑路径的存量值激活，见下例）
-    vm.textSlots['适应症'] = '  发热、头痛  '
-    expect(vm.collectAttributes()).toEqual({ 适应症: '发热、头痛' })
+    vm.textSlots['厂商'] = '  华为、中兴  '
+    expect(vm.collectAttributes()).toEqual({ 厂商: '华为、中兴' })
 
-    vm.textSlots['剂量'] = ' 50mg '
-    expect(vm.collectAttributes()).toEqual({ 适应症: '发热、头痛', 剂量: '50mg' })
+    vm.textSlots['端口数'] = ' 50mg '
+    expect(vm.collectAttributes()).toEqual({ 厂商: '华为、中兴', 端口数: '50mg' })
 
     // 空白文本 = 不写键
-    vm.textSlots['适应症'] = '   '
-    expect(vm.collectAttributes()).toEqual({ 剂量: '50mg' })
+    vm.textSlots['厂商'] = '   '
+    expect(vm.collectAttributes()).toEqual({ 端口数: '50mg' })
   })
 
   it('creates an object with the collected attributes', async () => {
@@ -149,14 +149,14 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
     const vm = wrapper.vm as unknown as ObjectTabVm
 
     vm.openCreate()
-    vm.form.ontologyId = 'onto-drug'
-    await vm.onFormOntologyChange('onto-drug')
-    vm.form.name = '  布洛芬  '
-    vm.textSlots['适应症'] = '止痛'
+    vm.form.ontologyId = 'onto-device'
+    await vm.onFormOntologyChange('onto-device')
+    vm.form.name = '  SMF  '
+    vm.textSlots['厂商'] = '中兴'
     await vm.save()
 
-    expect(state.api.createObject).toHaveBeenCalledWith('onto-drug', {
-      name: '布洛芬', attributes: { 适应症: '止痛' },
+    expect(state.api.createObject).toHaveBeenCalledWith('onto-device', {
+      name: 'SMF', attributes: { 厂商: '中兴' },
     })
     expect(vm.formVisible).toBe(false)
     expect(wrapper.emitted('refresh')).toBeTruthy()
@@ -164,15 +164,15 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
 
   it('splits value slots by existing value shape when editing', async () => {
     state.api.getObject.mockResolvedValue({
-      id: 'obj-1', library_id: 'lib-1', ontology_id: 'onto-drug', ontology_name: '药品',
-      name: '阿司匹林',
-      attributes_json: { 适应症: '发热', 剂量: 100, 处方药: false },
+      id: 'obj-1', library_id: 'lib-1', ontology_id: 'onto-device', ontology_name: '设备',
+      name: 'AMF',
+      attributes_json: { 厂商: '华为', 端口数: 100, 在网状态: false },
       source: 'manual', created_by: 'u1',
       created_at: '2026-11-17T08:00:00+00:00', updated_at: '2026-11-17T08:00:00+00:00',
       attribute_defs: [
-        { id: 'attr-1', name: '适应症', description: null, sort_order: 0 },
-        { id: 'attr-2', name: '剂量', description: null, sort_order: 1 },
-        { id: 'attr-3', name: '处方药', description: null, sort_order: 2 },
+        { id: 'attr-1', name: '厂商', description: null, sort_order: 0 },
+        { id: 'attr-2', name: '端口数', description: null, sort_order: 1 },
+        { id: 'attr-3', name: '在网状态', description: null, sort_order: 2 },
       ],
       outgoing_count: 0, incoming_count: 0,
     })
@@ -184,15 +184,15 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
     expect(state.api.getObject).toHaveBeenCalledWith('obj-1')
     expect(vm.editingId).toBe('obj-1')
     // 存量值形态决定控件槽位：文本/数字/布尔分流
-    expect(vm.textSlots['适应症']).toBe('发热')
-    expect(vm.numberSlots['剂量']).toBe(100)
-    expect(vm.boolSlots['处方药']).toBe(false)
+    expect(vm.textSlots['厂商']).toBe('华为')
+    expect(vm.numberSlots['端口数']).toBe(100)
+    expect(vm.boolSlots['在网状态']).toBe(false)
 
     await vm.save()
     // PUT 全量替换 attributes（含布尔 false）
     expect(state.api.updateObject).toHaveBeenCalledWith('obj-1', {
-      name: '阿司匹林',
-      attributes: { 适应症: '发热', 剂量: 100, 处方药: false },
+      name: 'AMF',
+      attributes: { 厂商: '华为', 端口数: 100, 在网状态: false },
     })
   })
 
@@ -202,8 +202,8 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
     const vm = wrapper.vm as unknown as ObjectTabVm
 
     vm.openCreate()
-    vm.form.ontologyId = 'onto-drug'
-    await vm.onFormOntologyChange('onto-drug')
+    vm.form.ontologyId = 'onto-device'
+    await vm.onFormOntologyChange('onto-device')
     vm.form.name = '   '
     await vm.save()
 

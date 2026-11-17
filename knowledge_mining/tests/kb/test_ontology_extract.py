@@ -134,21 +134,21 @@ async def test_extract_text_flow_with_conflict_marking(async_pool) -> None:
     admin = await _make_admin(async_pool)
     library = await _make_library(svc, admin)
     onto = await svc.create_ontology(
-        library["id"], name="药品", description="药品本体",
-        attributes=[{"name": "适应症"}, {"name": "剂量"}], user=admin,
+        library["id"], name="设备", description="设备本体",
+        attributes=[{"name": "厂商"}, {"name": "端口数"}], user=admin,
     )
     # 库内已有同名对象 → 候选 conflict 标记
     await svc.create_object(
-        onto["id"], name="阿司匹林", attributes=None, user=admin,
+        onto["id"], name="AMF", attributes=None, user=admin,
     )
     gen = _FakeGen({
         "objects": [
-            {"name": "阿司匹林", "attributes": {"适应症": "发热"}},
-            {"name": "布洛芬", "attributes": {}},
+            {"name": "AMF", "attributes": {"厂商": "华为"}},
+            {"name": "SMF", "attributes": {}},
         ],
     })
     ext = _ext(async_pool, gen)
-    text = "阿司匹林用于发热。布洛芬用于止痛。"
+    text = "AMF支持网络切片。SMF支持边缘计算。"
 
     result = await ext.start_extract(
         svc, library_id=library["id"], ontology_id=onto["id"],
@@ -167,9 +167,9 @@ async def test_extract_text_flow_with_conflict_marking(async_pool) -> None:
     assert candidates["truncated"] is False
     assert candidates["warnings"] == []
     by_name = {o["name"]: o for o in candidates["objects"]}
-    assert by_name["阿司匹林"]["conflict"] is True
-    assert by_name["阿司匹林"]["conflict_with"] == "阿司匹林"
-    assert by_name["布洛芬"]["conflict"] is False
+    assert by_name["AMF"]["conflict"] is True
+    assert by_name["AMF"]["conflict_with"] == "AMF"
+    assert by_name["SMF"]["conflict"] is False
 
     # prompt 断言：版本冻结常量 + §8.4 渲染顺序 + 模型/输出类型透传
     assert len(gen.calls) == 1
@@ -177,8 +177,8 @@ async def test_extract_text_flow_with_conflict_marking(async_pool) -> None:
     assert call["messages"][0]["content"] == EXTRACT_SYSTEM_PROMPT
     user_prompt = call["messages"][1]["content"]
     assert user_prompt.index("【本体定义】") < user_prompt.index("【源文本】")
-    assert "本体名称：药品" in user_prompt
-    assert "- 适应症" in user_prompt
+    assert "本体名称：设备" in user_prompt
+    assert "- 厂商" in user_prompt
     assert text in user_prompt
     assert call["kwargs"]["expected_output_type"] == "json_object"
     assert call["kwargs"]["knowledge_domain"] == _DOMAIN
@@ -189,40 +189,40 @@ async def test_extract_relations_resolution_and_endpoint_precheck(async_pool) ->
     svc = _svc(async_pool)
     admin = await _make_admin(async_pool)
     library = await _make_library(svc, admin)
-    drug = await svc.create_ontology(
-        library["id"], name="药品", description=None,
-        attributes=[{"name": "适应症"}], user=admin,
+    device = await svc.create_ontology(
+        library["id"], name="设备", description=None,
+        attributes=[{"name": "厂商"}], user=admin,
     )
-    disease = await svc.create_ontology(
-        library["id"], name="疾病", description=None, attributes=None, user=admin,
+    feature = await svc.create_ontology(
+        library["id"], name="特性", description=None, attributes=None, user=admin,
     )
-    treats = await svc.create_ontology_relation(
-        library["id"], name="治疗",
-        source_ontology_id=drug["id"], target_ontology_id=disease["id"],
+    supports = await svc.create_ontology_relation(
+        library["id"], name="支持",
+        source_ontology_id=device["id"], target_ontology_id=feature["id"],
         description=None, user=admin,
     )
     existing = await svc.create_object(
-        disease["id"], name="感冒", attributes=None, user=admin,
+        feature["id"], name="网络切片", attributes=None, user=admin,
     )
     gen = _FakeGen({
-        "objects": [{"name": "阿司匹林", "attributes": {}}],
+        "objects": [{"name": "AMF", "attributes": {}}],
         "relations": [
-            {"source": "阿司匹林", "relation": "治疗", "target": "感冒",
+            {"source": "AMF", "relation": "支持", "target": "网络切片",
              "target_existing": True},        # 新→已有，端点匹配
-            {"source": "阿司匹林", "relation": "治疗", "target": "发烧",
+            {"source": "AMF", "relation": "支持", "target": "漫游切片",
              "target_existing": True},        # 目标解析失败 → 丢弃
-            {"source": "阿司匹林", "relation": "无此关系", "target": "感冒",
+            {"source": "AMF", "relation": "无此关系", "target": "网络切片",
              "target_existing": True},        # 关系类型不在库 → endpoint_ok=False
-            {"source": "布洛芬", "relation": "治疗", "target": "感冒",
+            {"source": "SMF", "relation": "支持", "target": "网络切片",
              "target_existing": True},        # 源不在候选 → 丢弃
-            {"source": "阿司匹林", "relation": "治疗", "target": "阿司匹林",
-             "target_existing": False},       # 新→新（端点不匹配：药品→药品）
+            {"source": "AMF", "relation": "支持", "target": "AMF",
+             "target_existing": False},       # 新→新（端点不匹配：设备→设备）
         ],
     })
     ext = _ext(async_pool, gen)
     result = await ext.start_extract(
-        svc, library_id=library["id"], ontology_id=drug["id"],
-        source={"kind": "text", "text": "阿司匹林治疗感冒。"},
+        svc, library_id=library["id"], ontology_id=device["id"],
+        source={"kind": "text", "text": "AMF支持网络切片。"},
         suggest_relations=True, model=None, user=admin,
     )
     await _EXTRACT_TOKENS[result["extract_token"]]["task"]
@@ -236,8 +236,8 @@ async def test_extract_relations_resolution_and_endpoint_precheck(async_pool) ->
     relations = candidates["relations"]
     assert len(relations) == 3
 
-    treats_row = next(r for r in relations if r["relation"] == "治疗"
-                      and r["target"] == "感冒")
+    treats_row = next(r for r in relations if r["relation"] == "支持"
+                      and r["target"] == "网络切片")
     assert treats_row["target_existing"] is True
     assert treats_row["target_object_id"] == existing["id"]
     assert treats_row["endpoint_ok"] is True
@@ -245,20 +245,20 @@ async def test_extract_relations_resolution_and_endpoint_precheck(async_pool) ->
     unknown_rel = next(r for r in relations if r["relation"] == "无此关系")
     assert unknown_rel["endpoint_ok"] is False
 
-    new_new = next(r for r in relations if r["target"] == "阿司匹林")
+    new_new = next(r for r in relations if r["target"] == "AMF")
     assert new_new["target_existing"] is False
-    assert new_new["endpoint_ok"] is False  # 治疗要求 药品→疾病
+    assert new_new["endpoint_ok"] is False  # 支持要求 设备→特性
 
     warnings_text = "\n".join(candidates["warnings"])
-    assert "发烧" in warnings_text          # 目标无法解析
-    assert "布洛芬" in warnings_text        # 源不在候选
+    assert "漫游切片" in warnings_text          # 目标无法解析
+    assert "SMF" in warnings_text        # 源不在候选
     assert "无此关系" in warnings_text       # 关系类型未定义
 
     # suggest_relations=True：系统 prompt 带关系规则 + 已有对象清单入上下文
     call = gen.calls[0]
     assert call["messages"][0]["content"] == EXTRACT_SYSTEM_PROMPT_WITH_RELATIONS
     assert "【关系类型】" in call["messages"][1]["content"]
-    assert "疾病/感冒" in call["messages"][1]["content"]
+    assert "特性/网络切片" in call["messages"][1]["content"]
 
 
 # ------------------------------------------------------------- 护栏与轮询
@@ -268,7 +268,7 @@ async def test_extract_guards_and_poll_binding(async_pool) -> None:
     admin = await _make_admin(async_pool)
     library = await _make_library(svc, admin)
     onto = await svc.create_ontology(
-        library["id"], name="药品", description=None, attributes=None, user=admin,
+        library["id"], name="设备", description=None, attributes=None, user=admin,
     )
     gen = _FakeGen({"objects": []})
     ext = _ext(async_pool, gen)
@@ -355,7 +355,7 @@ async def test_extract_kb_document_source_paths(async_pool) -> None:
     admin = await _make_admin(async_pool)
     library = await _make_library(svc, admin)
     onto = await svc.create_ontology(
-        library["id"], name="药品", description=None, attributes=None, user=admin,
+        library["id"], name="设备", description=None, attributes=None, user=admin,
     )
     gen = _FakeGen({"objects": []})
 
@@ -364,8 +364,8 @@ async def test_extract_kb_document_source_paths(async_pool) -> None:
     mined = {
         "mined": True,
         "segments": [
-            {"normalized_text": "阿司匹林用于发热。", "raw_text": "忽略"},
-            {"normalized_text": None, "raw_text": "布洛芬用于止痛。"},
+            {"normalized_text": "AMF支持网络切片。", "raw_text": "忽略"},
+            {"normalized_text": None, "raw_text": "SMF支持边缘计算。"},
             {"normalized_text": "   ", "raw_text": None},
         ],
     }
@@ -383,7 +383,7 @@ async def test_extract_kb_document_source_paths(async_pool) -> None:
     assert body["status"] == "done"
     # 分段按序拼接：normalized 优先、缺则 raw、全空白段跳过
     user_prompt = gen.calls[0]["messages"][1]["content"]
-    assert "阿司匹林用于发热。\n布洛芬用于止痛。" in user_prompt
+    assert "AMF支持网络切片。\nSMF支持边缘计算。" in user_prompt
 
     # KB 跨域 → NotFound；未挖掘 → document_not_mined；文档挂他库 → NotFound
     cross = _ext(async_pool, gen, _FakeKbDb(kb={"id": "kb-2", "domain": "other_domain", "status": "active"}))
@@ -438,7 +438,7 @@ async def test_extract_llm_failure_marks_task_failed(async_pool) -> None:
     admin = await _make_admin(async_pool)
     library = await _make_library(svc, admin)
     onto = await svc.create_ontology(
-        library["id"], name="药品", description=None, attributes=None, user=admin,
+        library["id"], name="设备", description=None, attributes=None, user=admin,
     )
 
     class _BoomGen:
@@ -468,38 +468,38 @@ async def test_instantiate_success_new_new_and_new_existing(async_pool) -> None:
     svc = _svc(async_pool)
     admin = await _make_admin(async_pool)
     library = await _make_library(svc, admin)
-    drug = await svc.create_ontology(
-        library["id"], name="药品", description=None,
-        attributes=[{"name": "适应症"}], user=admin,
+    device = await svc.create_ontology(
+        library["id"], name="设备", description=None,
+        attributes=[{"name": "厂商"}], user=admin,
     )
-    disease = await svc.create_ontology(
-        library["id"], name="疾病", description=None, attributes=None, user=admin,
+    feature = await svc.create_ontology(
+        library["id"], name="特性", description=None, attributes=None, user=admin,
     )
-    treats = await svc.create_ontology_relation(
-        library["id"], name="治疗",
-        source_ontology_id=drug["id"], target_ontology_id=disease["id"],
+    supports = await svc.create_ontology_relation(
+        library["id"], name="支持",
+        source_ontology_id=device["id"], target_ontology_id=feature["id"],
         description=None, user=admin,
     )
     synergy = await svc.create_ontology_relation(
-        library["id"], name="协同",
-        source_ontology_id=drug["id"], target_ontology_id=drug["id"],
+        library["id"], name="互备",
+        source_ontology_id=device["id"], target_ontology_id=device["id"],
         description=None, user=admin,
     )
     existing = await svc.create_object(
-        disease["id"], name="感冒", attributes=None, user=admin,
+        feature["id"], name="网络切片", attributes=None, user=admin,
     )
 
     result = await svc.instantiate_batch(
-        library["id"], ontology_id=drug["id"], source="extract",
+        library["id"], ontology_id=device["id"], source="extract",
         objects=[
-            {"name": "阿司匹林", "attributes": {"适应症": "发热"}},
-            {"name": "布洛芬", "attributes": {}},
+            {"name": "AMF", "attributes": {"厂商": "华为"}},
+            {"name": "SMF", "attributes": {}},
         ],
         relations=[
             {"ontology_relation_id": synergy["id"],
-             "source_index": 0, "target_index": 1},          # 新→新（药品→药品）
-            {"ontology_relation_id": treats["id"],
-             "source_index": 0, "target_object_id": existing["id"]},  # 新→已有（药品→疾病）
+             "source_index": 0, "target_index": 1},          # 新→新（设备→设备）
+            {"ontology_relation_id": supports["id"],
+             "source_index": 0, "target_object_id": existing["id"]},  # 新→已有（设备→特性）
         ],
         user=admin,
     )
@@ -507,13 +507,13 @@ async def test_instantiate_success_new_new_and_new_existing(async_pool) -> None:
     assert len(result["relation_ids"]) == 2
 
     objects = await svc.list_objects(
-        library["id"], ontology_id=drug["id"], q=None,
+        library["id"], ontology_id=device["id"], q=None,
         limit=50, offset=0, user=admin,
     )
     by_name = {o["name"]: o for o in objects["items"]}
-    assert set(by_name) == {"阿司匹林", "布洛芬"}
+    assert set(by_name) == {"AMF", "SMF"}
     assert all(o["source"] == "extract" for o in by_name.values())
-    assert by_name["阿司匹林"]["attributes_json"] == {"适应症": "发热"}
+    assert by_name["AMF"]["attributes_json"] == {"厂商": "华为"}
 
     relations = await svc.list_semantic_relations(
         library["id"], source_object_id=None, target_object_id=None,
@@ -524,73 +524,73 @@ async def test_instantiate_success_new_new_and_new_existing(async_pool) -> None:
         (r["relation_name"], r["source_object_name"], r["target_object_name"])
         for r in relations["items"]
     }
-    assert ("协同", "阿司匹林", "布洛芬") in pairs
-    assert ("治疗", "阿司匹林", "感冒") in pairs
+    assert ("互备", "AMF", "SMF") in pairs
+    assert ("支持", "AMF", "网络切片") in pairs
 
 
 async def test_instantiate_validation_report_all_or_nothing(async_pool) -> None:
     svc = _svc(async_pool)
     admin = await _make_admin(async_pool)
     library = await _make_library(svc, admin)
-    drug = await svc.create_ontology(
-        library["id"], name="药品", description=None,
-        attributes=[{"name": "适应症"}], user=admin,
+    device = await svc.create_ontology(
+        library["id"], name="设备", description=None,
+        attributes=[{"name": "厂商"}], user=admin,
     )
-    disease = await svc.create_ontology(
-        library["id"], name="疾病", description=None, attributes=None, user=admin,
+    feature = await svc.create_ontology(
+        library["id"], name="特性", description=None, attributes=None, user=admin,
     )
-    treats = await svc.create_ontology_relation(
-        library["id"], name="治疗",
-        source_ontology_id=drug["id"], target_ontology_id=disease["id"],
+    supports = await svc.create_ontology_relation(
+        library["id"], name="支持",
+        source_ontology_id=device["id"], target_ontology_id=feature["id"],
         description=None, user=admin,
     )
     synergy = await svc.create_ontology_relation(
-        library["id"], name="协同",
-        source_ontology_id=drug["id"], target_ontology_id=drug["id"],
+        library["id"], name="互备",
+        source_ontology_id=device["id"], target_ontology_id=device["id"],
         description=None, user=admin,
     )
-    # 库内存量：阿司匹林（重名靶）+ 感冒 + 存量边 治疗(阿司匹林→感冒)
-    aspirin = await svc.create_object(
-        drug["id"], name="阿司匹林", attributes=None, user=admin,
+    # 库内存量：AMF（重名靶）+ 网络切片 + 存量边 支持(AMF→网络切片)
+    amf = await svc.create_object(
+        device["id"], name="AMF", attributes=None, user=admin,
     )
-    cold = await svc.create_object(
-        disease["id"], name="感冒", attributes=None, user=admin,
+    slice = await svc.create_object(
+        feature["id"], name="网络切片", attributes=None, user=admin,
     )
     await svc.create_semantic_relation(
-        ontology_relation_id=treats["id"],
-        source_object_id=aspirin["id"], target_object_id=cold["id"],
+        ontology_relation_id=supports["id"],
+        source_object_id=amf["id"], target_object_id=slice["id"],
         user=admin,
     )
 
     # source 白名单：import 不允许走本端点
     with pytest.raises(InvalidName):
         await svc.instantiate_batch(
-            library["id"], ontology_id=drug["id"], source="import",
+            library["id"], ontology_id=device["id"], source="import",
             objects=[{"name": "X"}], relations=[], user=admin,
         )
 
     with pytest.raises(BatchInstantiateFailed) as excinfo:
         await svc.instantiate_batch(
-            library["id"], ontology_id=drug["id"], source="extract",
+            library["id"], ontology_id=device["id"], source="extract",
             objects=[
-                {"name": "布洛芬", "attributes": {"适应症": "止痛"}},   # OK
-                {"name": "阿司匹林", "attributes": None},              # duplicate_existing（行1）
+                {"name": "SMF", "attributes": {"厂商": "中兴"}},   # OK
+                {"name": "AMF", "attributes": None},              # duplicate_existing（行1）
                 {"name": "   ", "attributes": None},                  # empty_name（行2）
-                {"name": "布洛芬", "attributes": None},                # duplicate_in_batch（行3，与行0）
-                {"name": "新药", "attributes": {"无此属性": "x"}},      # unknown_attribute（行4）
+                {"name": "SMF", "attributes": None},                # duplicate_in_batch（行3，与行0）
+                {"name": "新网元", "attributes": {"无此属性": "x"}},      # unknown_attribute（行4）
             ],
             relations=[
-                {"ontology_relation_id": treats["id"],
+                {"ontology_relation_id": supports["id"],
                  "source_index": 99, "target_index": 0},              # invalid_source_ref（行0：下标越界）
                 {"ontology_relation_id": uuid.uuid4().hex,
                  "source_index": 0, "target_index": 0},               # unknown_relation（行1）
-                {"ontology_relation_id": treats["id"],
-                 "source_index": 0, "target_object_id": cold["id"]},  # 行2：端点实际匹配（药品→疾病）→ 不报错
+                {"ontology_relation_id": supports["id"],
+                 "source_index": 0, "target_object_id": slice["id"]},  # 行2：端点实际匹配（设备→特性）→ 不报错
                 {"ontology_relation_id": synergy["id"],
-                 "source_object_id": cold["id"], "target_index": 0},  # endpoint_mismatch（行3：协同要药品→药品）
-                {"ontology_relation_id": treats["id"],
-                 "source_object_id": aspirin["id"],
-                 "target_object_id": cold["id"]},                     # duplicate_edge（行4：存量边预检）
+                 "source_object_id": slice["id"], "target_index": 0},  # endpoint_mismatch（行3：互备要设备→设备）
+                {"ontology_relation_id": supports["id"],
+                 "source_object_id": amf["id"],
+                 "target_object_id": slice["id"]},                     # duplicate_edge（行4：存量边预检）
                 {"ontology_relation_id": synergy["id"],
                  "source_index": 0, "target_index": 0},               # self_edge（行5：同下标同对象）
                 {"ontology_relation_id": synergy["id"],
@@ -614,7 +614,7 @@ async def test_instantiate_validation_report_all_or_nothing(async_pool) -> None:
     assert ("relations[4]", "duplicate_edge") in codes
     assert ("relations[5]", "self_edge") in codes
     assert ("relations[7]", "duplicate_edge") in codes
-    # 行2 端点实际匹配（药品→疾病）→ 不在错误集
+    # 行2 端点实际匹配（设备→特性）→ 不在错误集
     assert ("relations[2]", "endpoint_mismatch") not in codes
 
     # 整批零写入：库内仍只有预置 2 对象 + 1 边
@@ -632,7 +632,7 @@ async def test_instantiate_validation_report_all_or_nothing(async_pool) -> None:
     # 空批 → empty_batch
     with pytest.raises(BatchInstantiateFailed) as excinfo:
         await svc.instantiate_batch(
-            library["id"], ontology_id=drug["id"], source="manual",
+            library["id"], ontology_id=device["id"], source="manual",
             objects=[], relations=[], user=admin,
         )
     assert ("objects", "empty_batch") in {

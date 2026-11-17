@@ -129,49 +129,49 @@ async def test_ontology_lifecycle_and_attributes(async_pool) -> None:
     lib = await _make_library(svc, admin)
 
     onto = await svc.create_ontology(
-        lib["id"], name="药品", description="域内药品",
+        lib["id"], name="设备", description="域内设备",
         attributes=[
-            {"name": "适应症", "description": "适用症状"},
-            {"name": "用法用量"},
+            {"name": "厂商", "description": "生产厂商"},
+            {"name": "软件版本"},
         ],
         user=admin,
     )
     # 库内重名 → Duplicate；成员写 → Forbidden
     with pytest.raises(Duplicate):
-        await _make_ontology(svc, admin, lib["id"], "药品")
+        await _make_ontology(svc, admin, lib["id"], "设备")
     with pytest.raises(Forbidden):
         await svc.create_ontology(lib["id"], name="器材", description=None,
                                   attributes=None, user=member)
 
     detail = await svc.get_ontology(onto["id"], user=member)
-    assert [a["name"] for a in detail["attributes"]] == ["适应症", "用法用量"]
+    assert [a["name"] for a in detail["attributes"]] == ["厂商", "软件版本"]
 
     # 对象：未知属性键拒绝；非标量拒绝；正常创建（留空属性不写键）
     obj = await svc.create_object(
-        onto["id"], name="阿司匹林",
-        attributes={"适应症": "发热、头痛", "用法用量": "口服"},
+        onto["id"], name="AMF",
+        attributes={"厂商": "华为、中兴", "软件版本": "V200R021"},
         user=admin,
     )
-    assert obj["attributes_json"] == {"适应症": "发热、头痛", "用法用量": "口服"}
+    assert obj["attributes_json"] == {"厂商": "华为、中兴", "软件版本": "V200R021"}
     with pytest.raises(UnknownAttribute):
         await svc.create_object(onto["id"], name="B",
                                 attributes={"不存在": "x"}, user=admin)
     with pytest.raises(InvalidAttributeValue):
         await svc.create_object(onto["id"], name="C",
-                                attributes={"适应症": ["a"]}, user=admin)
+                                attributes={"厂商": ["a"]}, user=admin)
     # 同本体对象重名 → Duplicate
     with pytest.raises(Duplicate):
-        await svc.create_object(onto["id"], name="阿司匹林",
+        await svc.create_object(onto["id"], name="AMF",
                                 attributes=None, user=admin)
 
     # 属性改名 → 同事务迁移对象键（值保留）
     adapt = detail["attributes"][0]
-    renamed_attr = await svc.update_attribute(adapt["id"], name="主治",
+    renamed_attr = await svc.update_attribute(adapt["id"], name="机型",
                                               description=None, sort_order=None,
                                               user=admin)
-    assert renamed_attr["name"] == "主治"
+    assert renamed_attr["name"] == "机型"
     obj_after = await svc.get_object(obj["id"], user=admin)
-    assert obj_after["attributes_json"] == {"主治": "发热、头痛", "用法用量": "口服"}
+    assert obj_after["attributes_json"] == {"机型": "华为、中兴", "软件版本": "V200R021"}
     assert obj_after["source"] == "manual"
 
     # 属性删除 → 同事务清理对象存量键
@@ -181,7 +181,7 @@ async def test_ontology_lifecycle_and_attributes(async_pool) -> None:
     )
     await svc.delete_attribute(usage_attr["id"], user=admin)
     obj_final = await svc.get_object(obj["id"], user=admin)
-    assert "用法用量" not in obj_final["attributes_json"]
+    assert "软件版本" not in obj_final["attributes_json"]
 
     # 删除保护：本体有对象 → InUse；清空对象后（无关系引用）可删
     with pytest.raises(InUse):
@@ -197,15 +197,15 @@ async def test_ontology_delete_blocked_by_relation_ref(async_pool) -> None:
     svc = _svc(async_pool)
     admin = await _make_user(async_pool, domain=_DOMAIN, domain_admin=True)
     lib = await _make_library(svc, admin)
-    drug = await _make_ontology(svc, admin, lib["id"], "药品", [])
-    disease = await _make_ontology(svc, admin, lib["id"], "疾病", [])
+    device = await _make_ontology(svc, admin, lib["id"], "设备", [])
+    feature = await _make_ontology(svc, admin, lib["id"], "特性", [])
     await svc.create_ontology_relation(
-        lib["id"], name="治疗", description=None,
-        source_ontology_id=drug["id"], target_ontology_id=disease["id"],
+        lib["id"], name="支持", description=None,
+        source_ontology_id=device["id"], target_ontology_id=feature["id"],
         user=admin,
     )
     with pytest.raises(InUse):
-        await svc.delete_ontology(drug["id"], user=admin)
+        await svc.delete_ontology(device["id"], user=admin)
 
 
 # ------------------------------------------------------------- 关系与图
@@ -214,26 +214,26 @@ async def test_semantic_relations_rules(async_pool) -> None:
     svc = _svc(async_pool)
     admin = await _make_user(async_pool, domain=_DOMAIN, domain_admin=True)
     lib = await _make_library(svc, admin)
-    drug = await _make_ontology(svc, admin, lib["id"], "药品", [])
-    disease = await _make_ontology(svc, admin, lib["id"], "疾病", [])
-    person = await _make_ontology(svc, admin, lib["id"], "人物", [])
+    device = await _make_ontology(svc, admin, lib["id"], "设备", [])
+    feature = await _make_ontology(svc, admin, lib["id"], "特性", [])
+    element = await _make_ontology(svc, admin, lib["id"], "网元", [])
 
-    treats = await svc.create_ontology_relation(
-        lib["id"], name="治疗", description=None,
-        source_ontology_id=drug["id"], target_ontology_id=disease["id"],
+    supports = await svc.create_ontology_relation(
+        lib["id"], name="支持", description=None,
+        source_ontology_id=device["id"], target_ontology_id=feature["id"],
         user=admin,
     )
-    # 自环类型允许（人物-认识-人物）
-    knows = await svc.create_ontology_relation(
-        lib["id"], name="认识", description=None,
-        source_ontology_id=person["id"], target_ontology_id=person["id"],
+    # 自环类型允许（网元-互备-网元）
+    backup = await svc.create_ontology_relation(
+        lib["id"], name="互备", description=None,
+        source_ontology_id=element["id"], target_ontology_id=element["id"],
         user=admin,
     )
     # 库内关系重名 → Duplicate
     with pytest.raises(Duplicate):
         await svc.create_ontology_relation(
-            lib["id"], name="治疗", description=None,
-            source_ontology_id=disease["id"], target_ontology_id=drug["id"],
+            lib["id"], name="支持", description=None,
+            source_ontology_id=feature["id"], target_ontology_id=device["id"],
             user=admin,
         )
     # 端点本体不在本库 → NotFound
@@ -242,109 +242,109 @@ async def test_semantic_relations_rules(async_pool) -> None:
     with pytest.raises(NotFound):
         await svc.create_ontology_relation(
             lib["id"], name="跨库", description=None,
-            source_ontology_id=outside["id"], target_ontology_id=drug["id"],
+            source_ontology_id=outside["id"], target_ontology_id=device["id"],
             user=admin,
         )
 
-    aspirin = await svc.create_object(drug["id"], name="阿司匹林",
+    amf = await svc.create_object(device["id"], name="AMF",
                                       attributes=None, user=admin)
-    flu = await svc.create_object(disease["id"], name="感冒",
+    slice = await svc.create_object(feature["id"], name="网络切片",
                                   attributes=None, user=admin)
-    zhang = await svc.create_object(person["id"], name="张三",
+    active = await svc.create_object(element["id"], name="主用AMF",
                                     attributes=None, user=admin)
-    li = await svc.create_object(person["id"], name="李四",
+    standby = await svc.create_object(element["id"], name="备用AMF",
                                  attributes=None, user=admin)
 
-    # 端点不匹配：疾病→药品 用了 治疗(药品→疾病) → EndpointMismatch
+    # 端点不匹配：特性→设备 用了 支持(设备→特性) → EndpointMismatch
     with pytest.raises(EndpointMismatch):
         await svc.create_semantic_relation(
-            ontology_relation_id=treats["id"], source_object_id=flu["id"],
-            target_object_id=aspirin["id"], user=admin,
+            ontology_relation_id=supports["id"], source_object_id=slice["id"],
+            target_object_id=amf["id"], user=admin,
         )
     # 自指边拒绝
     with pytest.raises(EndpointMismatch):
         await svc.create_semantic_relation(
-            ontology_relation_id=knows["id"], source_object_id=zhang["id"],
-            target_object_id=zhang["id"], user=admin,
+            ontology_relation_id=backup["id"], source_object_id=active["id"],
+            target_object_id=active["id"], user=admin,
         )
     # 正常边 + 防重边
     edge = await svc.create_semantic_relation(
-        ontology_relation_id=treats["id"], source_object_id=aspirin["id"],
-        target_object_id=flu["id"], user=admin,
+        ontology_relation_id=supports["id"], source_object_id=amf["id"],
+        target_object_id=slice["id"], user=admin,
     )
     with pytest.raises(Duplicate):
         await svc.create_semantic_relation(
-            ontology_relation_id=treats["id"], source_object_id=aspirin["id"],
-            target_object_id=flu["id"], user=admin,
+            ontology_relation_id=supports["id"], source_object_id=amf["id"],
+            target_object_id=slice["id"], user=admin,
         )
     await svc.create_semantic_relation(
-        ontology_relation_id=knows["id"], source_object_id=zhang["id"],
-        target_object_id=li["id"], user=admin,
+        ontology_relation_id=backup["id"], source_object_id=active["id"],
+        target_object_id=standby["id"], user=admin,
     )
 
     # 改端点：有实例 → InUse；改名总是允许
     with pytest.raises(InUse):
         await svc.update_ontology_relation(
-            treats["id"], name=None, description=None,
-            source_ontology_id=person["id"], target_ontology_id=disease["id"],
+            supports["id"], name=None, description=None,
+            source_ontology_id=element["id"], target_ontology_id=feature["id"],
             user=admin,
         )
-    await svc.update_ontology_relation(treats["id"], name="医治",
+    await svc.update_ontology_relation(supports["id"], name="实现",
                                        description=None,
                                        source_ontology_id=None,
                                        target_ontology_id=None, user=admin)
 
     # 邻接查询
-    neighbors = await svc.get_object_neighbors(aspirin["id"], user=admin)
-    assert [n["other_name"] for n in neighbors["outgoing"]] == ["感冒"]
+    neighbors = await svc.get_object_neighbors(amf["id"], user=admin)
+    assert [n["other_name"] for n in neighbors["outgoing"]] == ["网络切片"]
     assert neighbors["incoming"] == []
 
     # 删除保护：边类型有实例拒删；对象有边拒删；清边后均可删
     with pytest.raises(InUse):
-        await svc.delete_ontology_relation(treats["id"], user=admin)
+        await svc.delete_ontology_relation(supports["id"], user=admin)
     with pytest.raises(InUse):
-        await svc.delete_object(aspirin["id"], user=admin)
+        await svc.delete_object(amf["id"], user=admin)
     await svc.delete_semantic_relation(edge["id"], user=admin)
-    await svc.delete_object(aspirin["id"], user=admin)
-    await svc.delete_ontology_relation(treats["id"], user=admin)
+    await svc.delete_object(amf["id"], user=admin)
+    await svc.delete_ontology_relation(supports["id"], user=admin)
 
     # 语义关系列表（过滤）
     result = await svc.list_semantic_relations(
-        lib["id"], source_object_id=zhang["id"], target_object_id=None,
+        lib["id"], source_object_id=active["id"], target_object_id=None,
         ontology_relation_id=None, limit=50, offset=0, user=admin,
     )
     assert result["total"] == 1
-    assert result["items"][0]["relation_name"] == "认识"
+    assert result["items"][0]["relation_name"] == "互备"
 
 
 async def test_library_schema_and_object_listing(async_pool) -> None:
     svc = _svc(async_pool)
     admin = await _make_user(async_pool, domain=_DOMAIN, domain_admin=True)
     lib = await _make_library(svc, admin)
-    drug = await _make_ontology(svc, admin, lib["id"], "药品",
-                                [{"name": "适应症"}])
-    disease = await _make_ontology(svc, admin, lib["id"], "疾病", [])
+    device = await _make_ontology(svc, admin, lib["id"], "设备",
+                                [{"name": "厂商"}])
+    feature = await _make_ontology(svc, admin, lib["id"], "特性", [])
     await svc.create_ontology_relation(
-        lib["id"], name="治疗", description=None,
-        source_ontology_id=drug["id"], target_ontology_id=disease["id"],
+        lib["id"], name="支持", description=None,
+        source_ontology_id=device["id"], target_ontology_id=feature["id"],
         user=admin,
     )
     for i in range(3):
-        await svc.create_object(drug["id"], name=f"药{i}",
-                                attributes={"适应症": f"症{i}"}, user=admin)
+        await svc.create_object(device["id"], name=f"网元{i}",
+                                attributes={"厂商": f"厂商{i}"}, user=admin)
 
     schema = await svc.get_library_schema(lib["id"], user=admin)
-    assert {o["name"] for o in schema["ontologies"]} == {"药品", "疾病"}
-    assert schema["ontologies"][0]["attributes"][0]["name"] == "适应症"
-    assert schema["relations"][0]["source_ontology_name"] == "药品"
+    assert {o["name"] for o in schema["ontologies"]} == {"设备", "特性"}
+    assert schema["ontologies"][0]["attributes"][0]["name"] == "厂商"
+    assert schema["relations"][0]["source_ontology_name"] == "设备"
 
-    listing = await svc.list_objects(lib["id"], ontology_id=drug["id"],
-                                     q="药", limit=10, offset=0, user=admin)
+    listing = await svc.list_objects(lib["id"], ontology_id=device["id"],
+                                     q="网元", limit=10, offset=0, user=admin)
     assert listing["total"] == 3
-    assert all(item["ontology_name"] == "药品" for item in listing["items"])
+    assert all(item["ontology_name"] == "设备" for item in listing["items"])
     # 详情含属性定义对齐 + 邻接计数
     detail = await svc.get_object(listing["items"][0]["id"], user=admin)
-    assert detail["attribute_defs"][0]["name"] == "适应症"
+    assert detail["attribute_defs"][0]["name"] == "厂商"
     assert detail["outgoing_count"] == 0 and detail["incoming_count"] == 0
 
 
@@ -359,12 +359,12 @@ async def test_create_ontology_attributes_with_explicit_none(async_pool) -> None
     onto = await svc.create_ontology(
         lib["id"], name="显式空值本体", description=None,
         attributes=[
-            {"name": "适应症", "description": None, "sort_order": None},
-            {"name": "剂量", "description": None, "sort_order": None},
+            {"name": "厂商", "description": None, "sort_order": None},
+            {"name": "端口数", "description": None, "sort_order": None},
         ],
         user=admin,
     )
     detail = await svc.get_ontology(onto["id"], user=admin)
-    assert [a["name"] for a in detail["attributes"]] == ["适应症", "剂量"]
+    assert [a["name"] for a in detail["attributes"]] == ["厂商", "端口数"]
     # None 兜底为下标序，而不是 NULL
     assert [a["sort_order"] for a in detail["attributes"]] == [0, 1]

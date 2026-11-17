@@ -55,7 +55,7 @@ function mountList() {
 
 const libraries = [
   {
-    id: 'lib-1', domain: 'cloud_core_network', name: '药品知识本体', description: '域内药品',
+    id: 'lib-1', domain: 'cloud_core_network', name: '核心网知识本体', description: '域内设备',
     created_by: 'u1', created_at: '2026-11-17T08:00:00+00:00',
     updated_at: '2026-11-17T08:00:00+00:00',
     ontology_count: 3, object_count: 12, relation_count: 5,
@@ -90,7 +90,7 @@ describe('ontology library list view（67号 P1）', () => {
 
     expect(state.api.listLibraries).toHaveBeenCalledWith(undefined)
     expect(vm.libraries).toHaveLength(2)
-    expect(vm.libraries.map(l => l.name)).toEqual(['药品知识本体', '设备本体'])
+    expect(vm.libraries.map(l => l.name)).toEqual(['核心网知识本体', '设备本体'])
   })
 
   it('grants write to domain admins and members read-only', async () => {
@@ -148,7 +148,7 @@ describe('ontology library list view（67号 P1）', () => {
     state.api.createLibrary.mockRejectedValueOnce({
       response: { status: 409, data: { detail: '同名本体库已存在' } },
     })
-    vm.form = { name: '药品知识本体', description: '' }
+    vm.form = { name: '核心网知识本体', description: '' }
     await vm.save()
     expect(state.ui.error).toHaveBeenCalled()
     // 失败不关对话框：用户改完名字可直接重试

@@ -106,7 +106,7 @@
           <el-input :model-value="form.ontologyName" disabled />
         </el-form-item>
         <el-form-item label="名称">
-          <el-input v-model="form.name" placeholder="如：阿司匹林" maxlength="200" data-test="object-name" />
+          <el-input v-model="form.name" placeholder="如：AMF网元" maxlength="200" data-test="object-name" />
         </el-form-item>
         <template v-if="form.attributeDefs.length > 0">
           <el-form-item

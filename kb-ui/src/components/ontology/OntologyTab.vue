@@ -53,7 +53,7 @@
     <el-dialog v-model="createVisible" title="新建本体" width="560px">
       <el-form label-width="70px">
         <el-form-item label="名称">
-          <el-input v-model="createForm.name" placeholder="如：药品" maxlength="80" data-test="ontology-name" />
+          <el-input v-model="createForm.name" placeholder="如：设备" maxlength="80" data-test="ontology-name" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="createForm.description" type="textarea" :rows="2" placeholder="这个本体代表什么（可选）" />

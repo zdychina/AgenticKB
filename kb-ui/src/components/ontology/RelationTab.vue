@@ -47,7 +47,7 @@
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑关系类型' : '新建关系类型'" width="500px">
       <el-form label-width="80px">
         <el-form-item label="名称">
-          <el-input v-model="form.name" placeholder="如：治疗、认识" maxlength="80" data-test="relation-name" />
+          <el-input v-model="form.name" placeholder="如：承载、作用于" maxlength="80" data-test="relation-name" />
         </el-form-item>
         <el-form-item label="源本体">
           <el-select v-model="form.sourceOntologyId" placeholder="选择源本体" style="width: 100%" data-test="relation-source">
@@ -63,7 +63,7 @@
           <el-input v-model="form.description" type="textarea" :rows="2" placeholder="这条边表达什么语义（可选）" />
         </el-form-item>
       </el-form>
-      <p class="rel-tab__hint">源=目标 时为自环类型（如「人物—认识—人物」）；库内名称唯一；改端点在已有实例时会被拒绝。</p>
+      <p class="rel-tab__hint">源=目标 时为自环类型（如「设备—互备—设备」）；库内名称唯一；改端点在已有实例时会被拒绝。</p>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" data-test="submit-relation" @click="save">保存</el-button>
