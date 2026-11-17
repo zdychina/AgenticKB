@@ -16,6 +16,7 @@
         class="obj-tab__search"
         placeholder="对象名称搜索"
         clearable
+        :prefix-icon="Search"
         data-test="filter-object-name"
         @keyup.enter="search"
         @clear="search"
@@ -40,13 +41,13 @@
         :disabled="ontologies.length < 1"
         data-test="create-object"
         @click="openCreate"
-      >新建对象</el-button>
+      ><el-icon class="obj-tab__btn-icon"><Plus /></el-icon>新建对象</el-button>
     </div>
 
     <el-table v-loading="loading" :data="items">
       <el-table-column label="名称" min-width="200">
         <template #default="{ row }">
-          <button class="obj-tab__link" type="button" @click="openDetail(row)">{{ row.name }}</button>
+          <button class="kb-link" type="button" @click="openDetail(row)">{{ row.name }}</button>
         </template>
       </el-table-column>
       <el-table-column label="本体" width="140">
@@ -153,7 +154,7 @@
           <el-tag size="small" effect="plain" type="info">出 {{ detail.outgoing_count }} · 入 {{ detail.incoming_count }}</el-tag>
         </div>
 
-        <h4 class="obj-tab__section-title">属性</h4>
+        <h4 class="kb-section-title">属性</h4>
         <el-descriptions v-if="Object.keys(detail.attributes_json || {}).length > 0" :column="1" size="small" border>
           <el-descriptions-item
             v-for="(value, key) in detail.attributes_json"
@@ -163,7 +164,7 @@
         </el-descriptions>
         <p v-else class="obj-tab__hint">未填写属性值。</p>
 
-        <h4 class="obj-tab__section-title">出边（指向他人）</h4>
+        <h4 class="kb-section-title">出边（指向他人）</h4>
         <NeighborList
           :edges="neighbors.outgoing"
           direction-label="→"
@@ -171,7 +172,7 @@
           @remove="removeEdge"
           @jump="openDetailById"
         />
-        <h4 class="obj-tab__section-title">入边（他人指向）</h4>
+        <h4 class="kb-section-title">入边（他人指向）</h4>
         <NeighborList
           :edges="neighbors.incoming"
           direction-label="←"
@@ -260,6 +261,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Search } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -676,13 +678,18 @@ onMounted(reload)
 .obj-tab__filter { width: 160px; }
 .obj-tab__search { width: 220px; }
 .obj-tab__spacer { flex: 1; }
+.obj-tab__btn-icon { margin-right: 4px; }
 .obj-tab__pager { margin-top: 12px; justify-content: flex-end; }
-.obj-tab__link { border: 0; background: none; padding: 0; color: var(--kb-accent, #2563eb); font-weight: 650; cursor: pointer; }
 .obj-tab__attr-value { width: 100%; display: flex; flex-direction: column; gap: 4px; }
 .obj-tab__attr-hint { color: var(--kb-text-tertiary); font-size: 12px; }
 .obj-tab__hint { color: var(--kb-text-tertiary); font-size: 12px; margin: 6px 0 0; }
 .obj-tab__detail { display: flex; flex-direction: column; }
 .obj-tab__detail-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.obj-tab__section-title { margin: 16px 0 8px; font-size: 14px; }
-.obj-tab__edge-actions { margin-top: 16px; }
+
+/* 详情抽屉里「建立关系」沉底分隔，不与邻接列表糊在一起 */
+.obj-tab__edge-actions {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--kb-border-light);
+}
 </style>

@@ -6,19 +6,20 @@
         class="onto-tab__search"
         placeholder="按名称过滤"
         clearable
+        :prefix-icon="Search"
       />
       <el-button
         v-if="canWrite"
         type="primary"
         data-test="create-ontology"
         @click="openCreate"
-      >新建本体</el-button>
+      ><el-icon class="onto-tab__btn-icon"><Plus /></el-icon>新建本体</el-button>
     </div>
 
     <el-table :data="filteredOntologies">
       <el-table-column label="名称" min-width="180">
         <template #default="{ row }">
-          <button class="onto-tab__link" type="button" @click="openDetail(row)">
+          <button class="kb-link" type="button" @click="openDetail(row)">
             {{ row.name }}
           </button>
         </template>
@@ -105,7 +106,7 @@
           <span v-if="detail.description" class="onto-tab__detail-desc">{{ detail.description }}</span>
         </div>
 
-        <h4 class="onto-tab__section-title">属性定义</h4>
+        <h4 class="kb-section-title">属性定义</h4>
         <el-table :data="detail.attributes" size="small">
           <el-table-column label="排序" width="110" align="center">
             <template #default="{ $index }">
@@ -137,7 +138,7 @@
         </div>
         <p class="onto-tab__hint">属性无类型系统：值为自由文本/数字/布尔；改名会同步迁移对象存量键，删除会清理存量键（同事务）。</p>
 
-        <h4 class="onto-tab__section-title">参与的关系类型</h4>
+        <h4 class="kb-section-title">参与的关系类型</h4>
         <el-table :data="detail.ontology_relations" size="small">
           <el-table-column prop="name" label="名称" width="140" />
           <el-table-column label="方向" min-width="220">
@@ -183,6 +184,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Search } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -433,7 +435,7 @@ function formatTime(value: string | null): string {
 <style scoped>
 .onto-tab__toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; }
 .onto-tab__search { width: 240px; }
-.onto-tab__link { border: 0; background: none; padding: 0; color: var(--kb-accent, #2563eb); font-weight: 650; cursor: pointer; }
+.onto-tab__btn-icon { margin-right: 4px; }
 .onto-tab__attrs { width: 100%; display: flex; flex-direction: column; gap: 8px; }
 .onto-tab__attr-row { display: flex; gap: 8px; align-items: center; }
 .onto-tab__attr-row .el-input:first-child { width: 180px; flex: none; }
@@ -441,8 +443,17 @@ function formatTime(value: string | null): string {
 .onto-tab__detail-title { font-weight: 650; }
 .onto-tab__detail-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .onto-tab__detail-desc { color: var(--kb-text-tertiary); font-size: 13px; }
-.onto-tab__section-title { margin: 16px 0 8px; font-size: 14px; }
-.onto-tab__attr-add { display: flex; gap: 8px; margin-top: 10px; }
+
+/* 添加属性行：围一块淡底区域，与上方属性表区分 */
+.onto-tab__attr-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px dashed var(--kb-border);
+  border-radius: var(--kb-radius-sm);
+  background: var(--kb-bg-card-hover);
+}
 .onto-tab__attr-add-name { width: 180px; flex: none; }
 .onto-tab__hint { color: var(--kb-text-tertiary); font-size: 12px; margin: 8px 0 0; }
 </style>

@@ -2,27 +2,36 @@
   <div class="onto-detail">
     <header class="onto-detail__header">
       <div class="onto-detail__title-wrap">
-        <el-button link @click="router.push({ name: 'ontology-libraries' })">
+        <el-button link class="onto-detail__back" @click="router.push({ name: 'ontology-libraries' })">
           <el-icon><ArrowLeft /></el-icon>
         </el-button>
-        <div>
+        <span v-if="library" class="onto-detail__avatar" aria-hidden="true">{{ library.name.trim()[0] || '库' }}</span>
+        <div class="onto-detail__title-block">
           <h2 class="onto-detail__title">{{ library?.name || '…' }}</h2>
-          <div class="onto-detail__meta">
-            <el-tag v-if="library" size="small" effect="plain">{{ library.ontology_count ?? 0 }} 本体</el-tag>
-            <el-tag v-if="library" size="small" effect="plain">{{ library.object_count ?? 0 }} 对象</el-tag>
-            <el-tag v-if="library" size="small" effect="plain">{{ library.relation_count ?? 0 }} 关系实例</el-tag>
-            <span v-if="library?.description" class="onto-detail__desc">{{ library.description }}</span>
+          <div v-if="library" class="onto-detail__meta">
+            <span class="onto-detail__stat"><b>{{ library.ontology_count ?? 0 }}</b>本体</span>
+            <span class="onto-detail__sep">·</span>
+            <span class="onto-detail__stat"><b>{{ library.object_count ?? 0 }}</b>对象</span>
+            <span class="onto-detail__sep">·</span>
+            <span class="onto-detail__stat"><b>{{ library.relation_count ?? 0 }}</b>关系实例</span>
           </div>
         </div>
       </div>
       <div v-if="canWrite" class="onto-detail__actions">
-        <el-button data-test="edit-library" @click="openEdit">编辑</el-button>
-        <el-button type="danger" data-test="delete-library" @click="remove">删除库</el-button>
+        <el-button data-test="edit-library" @click="openEdit">
+          <el-icon class="onto-detail__btn-icon"><Edit /></el-icon>编辑
+        </el-button>
+        <el-button type="danger" plain data-test="delete-library" @click="remove">
+          <el-icon class="onto-detail__btn-icon"><Delete /></el-icon>删除库
+        </el-button>
       </div>
     </header>
 
+    <p v-if="library?.description" class="onto-detail__desc">{{ library.description }}</p>
+
     <el-tabs v-model="activeTab" class="onto-detail__tabs">
-      <el-tab-pane label="本体" name="ontologies">
+      <el-tab-pane name="ontologies">
+        <template #label><el-icon class="onto-detail__tab-icon"><Collection /></el-icon>本体</template>
         <OntologyTab
           :library-id="libraryId"
           :can-write="canWrite"
@@ -30,7 +39,8 @@
           @refresh="refreshAll"
         />
       </el-tab-pane>
-      <el-tab-pane label="关系类型" name="relations">
+      <el-tab-pane name="relations">
+        <template #label><el-icon class="onto-detail__tab-icon"><Connection /></el-icon>关系类型</template>
         <RelationTab
           :library-id="libraryId"
           :can-write="canWrite"
@@ -39,7 +49,8 @@
           @refresh="refreshAll"
         />
       </el-tab-pane>
-      <el-tab-pane label="语义对象" name="objects">
+      <el-tab-pane name="objects">
+        <template #label><el-icon class="onto-detail__tab-icon"><Box /></el-icon>语义对象</template>
         <ObjectTab
           :library-id="libraryId"
           :can-write="canWrite"
@@ -48,7 +59,8 @@
           @refresh="refreshAll"
         />
       </el-tab-pane>
-      <el-tab-pane label="图谱" name="graph" lazy>
+      <el-tab-pane name="graph" lazy>
+        <template #label><el-icon class="onto-detail__tab-icon"><Share /></el-icon>图谱</template>
         <GraphTab :library-id="libraryId" :ontologies="ontologies" :active="activeTab === 'graph'" />
       </el-tab-pane>
     </el-tabs>
@@ -74,7 +86,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, Box, Collection, Connection, Delete, Edit, Share } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import { useAuthStore } from '@/stores/auth'
@@ -179,10 +191,64 @@ watch(() => domainStore.currentDomain, () => {
 
 <style scoped>
 .onto-detail { padding: 4px; }
-.onto-detail__header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
-.onto-detail__title-wrap { display: flex; align-items: flex-start; gap: 6px; }
-.onto-detail__title { margin: 0 0 6px; font-size: 18px; }
-.onto-detail__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.onto-detail__desc { color: var(--kb-text-tertiary); font-size: 13px; }
+
+.onto-detail__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.onto-detail__title-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.onto-detail__back { font-size: 18px; color: var(--kb-text-secondary); }
+
+.onto-detail__avatar {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--kb-radius);
+  background: var(--kb-accent-soft);
+  color: var(--kb-accent);
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.onto-detail__title { margin: 0; font-size: 18px; line-height: 1.3; }
+
+.onto-detail__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.onto-detail__stat { font-size: 12px; color: var(--kb-text-tertiary); }
+
+.onto-detail__stat b {
+  margin-right: 3px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--kb-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.onto-detail__sep { color: var(--kb-border); }
+
+.onto-detail__desc {
+  margin: 0 0 8px 58px;
+  color: var(--kb-text-secondary);
+  font-size: 13px;
+}
+
+.onto-detail__actions { display: flex; gap: 8px; }
+.onto-detail__btn-icon { margin-right: 4px; }
+
 .onto-detail__tabs { margin-top: 4px; }
+.onto-detail__tab-icon { margin-right: 5px; vertical-align: -2px; }
 </style>

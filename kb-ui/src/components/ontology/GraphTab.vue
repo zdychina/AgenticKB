@@ -12,8 +12,8 @@
           @click="toggleOntology(chip.id)"
         >
           <span class="graph-tab__dot" :style="{ background: chip.color }" />
-          {{ chip.name }}
-          <span class="graph-tab__count">{{ chip.count }}</span>
+          <span class="graph-tab__name">{{ chip.name }}</span>
+          <span class="graph-tab__count" :class="{ 'is-zero': chip.count === 0 }">{{ chip.count }}</span>
         </button>
         <span v-if="legendChips.length === 0" class="graph-tab__hint">库内还没有本体</span>
       </div>
@@ -23,13 +23,14 @@
           class="graph-tab__search"
           placeholder="对象名关键字：命中高亮"
           clearable
+          :prefix-icon="Search"
           data-test="graph-keyword"
           @keyup.enter="renderGraph"
           @clear="renderGraph"
         />
-        <el-button data-test="graph-refresh" @click="load">刷新</el-button>
-        <el-button data-test="graph-fit" @click="fitView">适应画布</el-button>
-        <el-button data-test="graph-export" @click="exportPng">导出 PNG</el-button>
+        <el-button data-test="graph-refresh" @click="load"><el-icon class="graph-tab__btn-icon"><Refresh /></el-icon>刷新</el-button>
+        <el-button data-test="graph-fit" @click="fitView"><el-icon class="graph-tab__btn-icon"><Aim /></el-icon>适应画布</el-button>
+        <el-button data-test="graph-export" @click="exportPng"><el-icon class="graph-tab__btn-icon"><Download /></el-icon>导出 PNG</el-button>
       </div>
     </div>
 
@@ -59,14 +60,14 @@
             </tr>
           </table>
           <p v-else class="graph-tab__hint">该本体没有属性定义</p>
-          <h4 class="graph-tab__drawer-sub">出边（→）</h4>
+          <h4 class="kb-section-title graph-tab__drawer-sub">出边（→）</h4>
           <NeighborList
             :edges="drawerNeighbors.outgoing"
             direction-label="→"
             :can-write="false"
             @jump="openDrawer"
           />
-          <h4 class="graph-tab__drawer-sub">入边（←）</h4>
+          <h4 class="kb-section-title graph-tab__drawer-sub">入边（←）</h4>
           <NeighborList
             :edges="drawerNeighbors.incoming"
             direction-label="←"
@@ -83,6 +84,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Graph } from '@antv/g6'
+import { Aim, Download, Refresh, Search } from '@element-plus/icons-vue'
 import type { EdgeData, IElementEvent, NodeData } from '@antv/g6'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
@@ -106,8 +108,8 @@ const api = useOntologyApi()
 
 /** 12 色循环：本体超 12 个时从头复用（色区分度有限，属可接受降级）。 */
 const PALETTE = [
-  '#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2',
-  '#db2777', '#65a30d', '#ea580c', '#0d9488', '#6366f1', '#b45309',
+  '#0891b2', '#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed',
+  '#db2777', '#65a30d', '#ea580c', '#6366f1', '#b45309', '#475569',
 ]
 
 const loading = ref(false)
@@ -336,20 +338,74 @@ onBeforeUnmount(destroyGraph)
 <style scoped>
 .graph-tab { padding: 4px; }
 .graph-tab__toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.graph-tab__btn-icon { margin-right: 4px; }
+
+/* ── 图例色块：胶囊 + 计数徽章，关闭态整体退隐 ── */
 .graph-tab__legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.graph-tab__chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--kb-border, #e2e8f0); background: none; border-radius: 12px; padding: 2px 10px; font-size: 12px; cursor: pointer; color: var(--kb-text, #1e293b); }
-.graph-tab__chip.is-off { opacity: 0.4; text-decoration: line-through; }
-.graph-tab__dot { width: 10px; height: 10px; border-radius: 50%; }
-.graph-tab__count { color: var(--kb-text-tertiary); }
+
+.graph-tab__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--kb-border);
+  background: var(--kb-bg-card);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--kb-text-primary, #0f172a);
+  transition: border-color var(--kb-duration) var(--kb-ease),
+    box-shadow var(--kb-duration) var(--kb-ease);
+}
+
+.graph-tab__chip:hover { border-color: var(--kb-accent); box-shadow: var(--kb-shadow-xs); }
+.graph-tab__chip.is-off { opacity: 0.45; }
+.graph-tab__chip.is-off .graph-tab__name { text-decoration: line-through; }
+
+.graph-tab__dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+
+.graph-tab__count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--kb-bg-page);
+  color: var(--kb-text-secondary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+}
+
+.graph-tab__count.is-zero { color: var(--kb-text-tertiary); }
+
 .graph-tab__actions { display: flex; align-items: center; gap: 8px; }
-.graph-tab__search { width: 200px; }
-.graph-tab__alert { border: 1px solid #f59e0b66; background: #fffbeb; color: #92400e; border-radius: 4px; padding: 6px 12px; font-size: 13px; margin-bottom: 8px; }
-.graph-tab__canvas { height: 560px; border: 1px solid var(--kb-border, #e2e8f0); border-radius: 6px; }
+.graph-tab__search { width: 210px; }
+
+/* 截断提示走告警令牌，与全站告警条同语言 */
+.graph-tab__alert {
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  background: var(--kb-warning-soft);
+  color: #92400e;
+  border-radius: var(--kb-radius-sm);
+  padding: 6px 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+/* ── 画布：点阵网格底，图谱「图纸」感 ── */
+.graph-tab__canvas {
+  height: 560px;
+  border: 1px solid var(--kb-border);
+  border-radius: var(--kb-radius);
+  background-color: var(--kb-bg-card-hover);
+  background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
 .graph-tab__empty { padding: 40px 0; }
 .graph-tab__hint { color: var(--kb-text-tertiary); font-size: 13px; }
 .graph-tab__center-hint { text-align: center; margin-top: 8px; }
 .graph-tab__drawer-title { margin: 0 0 6px; font-size: 16px; }
-.graph-tab__drawer-sub { margin: 16px 0 6px; font-size: 13px; color: var(--kb-text-secondary); }
+.graph-tab__drawer-sub { margin-top: 18px; }
 .graph-tab__attrs { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
 .graph-tab__attrs th { text-align: left; font-weight: 600; width: 40%; padding: 4px 8px 4px 0; color: var(--kb-text-secondary); vertical-align: top; }
 .graph-tab__attrs td { padding: 4px 0; word-break: break-all; }

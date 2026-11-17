@@ -8,7 +8,7 @@
         :disabled="ontologies.length < 1"
         data-test="create-relation"
         @click="openCreate"
-      >新建关系类型</el-button>
+      ><el-icon class="rel-tab__btn-icon"><Plus /></el-icon>新建关系类型</el-button>
     </div>
 
     <el-table :data="relations">
@@ -75,6 +75,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -167,7 +168,15 @@ async function remove(row: OntologyRelation) {
 <style scoped>
 .rel-tab__toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 10px; }
 .rel-tab__tip { margin: 0; color: var(--kb-text-tertiary); font-size: 13px; }
+.rel-tab__btn-icon { margin-right: 4px; }
 .rel-tab__name { font-weight: 650; }
-.rel-tab__arrow { margin: 0 6px; color: var(--kb-text-tertiary); }
+
+/* 方向箭头用强调色：源 → 目标的语义走向一眼可辨 */
+.rel-tab__arrow {
+  margin: 0 6px;
+  color: var(--kb-accent);
+  font-weight: 700;
+}
+
 .rel-tab__hint { color: var(--kb-text-tertiary); font-size: 12px; margin: 4px 0 0 80px; }
 </style>

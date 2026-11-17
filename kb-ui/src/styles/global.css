@@ -103,3 +103,48 @@ body {
   width: 28px;
   height: 28px;
 }
+
+/* ── 跨页面复用的小模式 ─────────────────────────────── */
+
+/* 表格里的数字列对齐得更整齐（计数/时间等） */
+.el-table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 行内文字链接（列表名、邻接对端名等）：强调色 + 悬停下划线 */
+.kb-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--kb-accent);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--kb-duration) var(--kb-ease);
+}
+
+.kb-link:hover {
+  color: #0e7490;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* 抽屉/对话框里的小节标题：左侧细强调条 */
+.kb-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--kb-text-secondary);
+}
+
+.kb-section-title::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--kb-accent);
+}
+
