@@ -1,25 +1,41 @@
 <template>
   <div class="import-wizard">
-    <!-- 卡① 选文件：上传 xlsx → 拿 preview_token + 预览（sheet 选择） -->
+    <!-- 流程步骤条（高保真 ar-guide-steps）：文件 → 列映射 → 预览确认 -->
+    <div class="import-wizard__steps" aria-label="导入流程">
+      <template v-for="(step, i) in WIZARD_STEPS" :key="step">
+        <span
+          class="import-wizard__step-pill"
+          :class="{ 'is-current': i === stageIndex, 'is-done': i < stageIndex }"
+        ><b>{{ i < stageIndex ? '✓' : i + 1 }}</b>{{ step }}</span>
+        <span v-if="i < WIZARD_STEPS.length - 1" class="import-wizard__step-sep" aria-hidden="true">→</span>
+      </template>
+    </div>
+
+    <!-- 卡① 选文件：拖拽区（高保真 ar-upload）——拖入/点击皆可 -->
     <el-card class="import-wizard__step" shadow="never">
       <template #header>
         <b>① 选择文件</b>
         <span class="import-wizard__hint">（.xlsx，≤50MB；解析后 1 小时内有效）</span>
       </template>
       <el-upload
+        drag
         accept=".xlsx"
         :show-file-list="false"
         :http-request="uploadRequest"
         class="import-wizard__upload"
+        data-test="wizard-upload"
       >
-        <el-button type="primary" :loading="uploading" data-test="wizard-upload">
-          {{ envelope ? '重新上传' : '上传 Excel' }}
-        </el-button>
-        <template #tip>
-          <span v-if="envelope" class="import-wizard__file">
-            已解析：{{ envelope.preview.file_name }}
-          </span>
-        </template>
+        <div class="import-wizard__dropzone" :class="{ 'is-parsed': uploading }">
+          <el-icon class="import-wizard__dz-icon"><UploadFilled /></el-icon>
+          <template v-if="!envelope">
+            <p class="import-wizard__dz-title">{{ uploading ? '正在解析…' : '拖入 Excel 文件，或点击选择' }}</p>
+            <p class="import-wizard__dz-hint">.xlsx，单文件 ≤50MB；解析结果 1 小时内有效</p>
+          </template>
+          <template v-else>
+            <p class="import-wizard__dz-title">{{ envelope.preview.file_name }}</p>
+            <p class="import-wizard__dz-hint">已解析——拖入新文件可替换</p>
+          </template>
+        </div>
       </el-upload>
       <div v-if="envelope" class="import-wizard__sheet-row">
         <span>工作表：</span>
@@ -35,31 +51,25 @@
       </div>
     </el-card>
 
-    <!-- 卡② 列映射：左=文件列推断；右=逐列映射（已有列→map_to/新建/丢弃） -->
+    <!-- 卡② 列映射：每个文件列与对应目标映射共用一行，长枚举值也不串行。 -->
     <el-card v-if="envelope" class="import-wizard__step" shadow="never">
       <template #header>
         <b>② 列映射</b>
         <span class="import-wizard__hint">（{{ hasExisting ? '追加模式：至少一列映射到已有列；文件新列可新建' : '建表模式：为每列选择目标类型，建议指定主键' }}）</span>
       </template>
       <div class="import-wizard__map">
-        <div class="import-wizard__sources">
-          <div class="import-wizard__pane-title">文件列（类型推断：{{ sheet }}）</div>
-          <div v-for="col in activeSheetColumns" :key="col.source_name" class="import-wizard__source">
-            <span class="import-wizard__source-name">{{ col.source_name }}</span>
-            <el-tag size="small" effect="plain" :type="typeTagType(col.inferred_type)">
-              {{ typeLabel(col.inferred_type) }}
-            </el-tag>
+        <div
+          v-for="(m, index) in mappings"
+          :key="m.source"
+          class="import-wizard__map-row"
+          :class="{ 'import-wizard__map-row--drop': m.action === 'drop' }"
+        >
+          <div class="import-wizard__source" :title="m.source">
+            <span class="import-wizard__source-name">{{ m.source }}</span>
+            <span class="import-wizard__type-chip">{{ typeLabel(activeSheetColumns[index]?.inferred_type ?? '') }}</span>
           </div>
-        </div>
-        <div class="import-wizard__targets">
-          <div class="import-wizard__pane-title">目标映射（{{ mappings.length }} 列）</div>
-          <div
-            v-for="m in mappings"
-            :key="m.source"
-            class="import-wizard__map-row"
-            :class="{ 'import-wizard__map-row--drop': m.action === 'drop' }"
-          >
-            <span class="import-wizard__map-source">{{ m.source }}</span>
+          <span class="import-wizard__map-arrow" aria-hidden="true">→</span>
+          <div class="import-wizard__map-controls">
             <el-select
               v-model="m.action"
               size="small"
@@ -154,17 +164,18 @@
         <span class="import-wizard__hint">（按映射投影的前 {{ projectedRows.length }} 行样例）</span>
       </template>
       <template v-if="!report">
-        <el-table :data="projectedRows" size="small" max-height="320" class="import-wizard__preview">
-          <el-table-column
-            v-for="col in projectedColumns"
-            :key="col"
-            :prop="col"
-            :label="col"
-            min-width="120"
-            show-overflow-tooltip
-          />
-          <template #empty>文件无数据行</template>
-        </el-table>
+        <!-- 统一表格视图（与设计态/运行态同形态）：投影样例只读预览 -->
+        <div class="import-wizard__preview">
+          <ArtifactTableView
+            :columns="previewColumns"
+            :rows="previewRows"
+            :editable="false"
+            :show-sources="false"
+            :footer-text="`样例 ${previewRows.length} 行 · ${previewColumns.length} 列（按映射投影）`"
+          >
+            <template #empty>文件无数据行</template>
+          </ArtifactTableView>
+        </div>
         <div class="import-wizard__policy">
           <span>类型错误：</span>
           <el-select v-model="conflictPolicy.type_error" size="small" style="width: 140px">
@@ -222,14 +233,25 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadRequestOptions } from 'element-plus'
 import { useArtifactsApi } from '@/api/artifacts'
+import ArtifactTableView from '@/components/artifacts/ArtifactTableView.vue'
 import { apiErrorDetail } from '@/api/proxyClient'
 import type {
-  ArtifactColumn, ImportConflictPolicy, ImportReport, PreviewColumn,
+  ArtifactColumn, ArtifactRow, ImportConflictPolicy, ImportReport, PreviewColumn,
   PreviewEnvelope, SheetPreview,
 } from '@/types/artifacts'
+
+/** 流程步骤（高保真 ar-guide-steps 同款文案）。 */
+const WIZARD_STEPS = ['选择文件', '列映射', '预览确认'] as const
+
+/** 当前阶段：0 未上传 / 1 已上传未确认映射 / 2 已进预览。 */
+const stageIndex = computed(() => {
+  if (!envelope.value) return 0
+  return mappingConfirmed.value ? 2 : 1
+})
 
 /** 后端 build_mapping 认可的列类型（§6.2 推断口径）。 */
 const COLUMN_TYPES = [
@@ -332,6 +354,31 @@ const projectedRows = computed(() => {
     return out
   })
 })
+
+/** 统一表格视图适配：投影列名 → 最小 ArtifactColumn 形态（纯文本预览）。 */
+const previewColumns = computed<ArtifactColumn[]>(() =>
+  projectedColumns.value.map((name, index) => ({
+    artifact_id: props.artifactId,
+    column_id: `preview-${index}`,
+    column_name: name,
+    column_type: 'text',
+    enum_values: null,
+    is_primary_key: false,
+    is_indexed: false,
+    alias: null,
+    status: 'active',
+    ordinal: index + 1,
+  })))
+
+/** 统一表格视图适配：投影行 → ArtifactRow 形态（预览占位字段）。 */
+const previewRows = computed<ArtifactRow[]>(() =>
+  projectedRows.value.map((data, index) => ({
+    row_key: `preview-${index}`,
+    data,
+    provenance: null,
+    conflicts: null,
+    ordinal: index + 1,
+  })))
 
 watch(() => props.active, (active) => {
   if (active && !columnsLoaded.value) void loadColumns()
@@ -480,16 +527,90 @@ async function runImport(): Promise<void> {
     emit('imported', result)
     ElMessage.success(`导入完成：新增 ${result.inserted ?? 0} / 更新 ${result.updated ?? 0}`)
   } catch (error) {
-    const status = (error as { response?: { status?: number } })?.response?.status
-    if (status === 410) {
-      ElMessage.error('预览已过期（1 小时 TTL），请重新上传文件')
-      resetWizard()
-    } else {
-      ElMessage.error(`导入失败：${await apiErrorDetail(error)}`)
-    }
+    const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })?.response
+    const raw = await apiErrorDetail(error)
+    const failure = describeImportFailure(response?.data?.detail, raw, response?.status, sheet.value)
+    if (response?.status === 410) resetWizard()
+    await ElMessageBox.alert(failure.message, failure.title, {
+      type: 'warning', confirmButtonText: '知道了',
+    }).catch(() => {})
   } finally {
     importing.value = false
   }
+}
+
+/** 执行导入的所有失败都使用可操作的中文说明；不把服务端错误码原样给用户。 */
+function describeImportFailure(detail: unknown, raw: string, status: number | undefined, sheetName: string): {
+  title: string; message: string
+} {
+  const info = detail && typeof detail === 'object' ? detail as Record<string, unknown> : null
+  const serverMessage = typeof info?.message === 'string' ? info.message : ''
+  const serverCode = typeof info?.reason === 'string' ? info.reason
+    : typeof info?.code === 'string' ? info.code : ''
+  const legacyCode = (typeof detail === 'string' ? detail : raw).split(':', 1)[0].trim()
+  const code = serverCode || legacyCode
+  const suffix = typeof detail === 'string' && detail.includes(':')
+    ? detail.slice(detail.indexOf(':') + 1).trim() : ''
+  const sheetLabel = sheetName ? `工作表「${sheetName}」` : '所选工作表'
+
+  if (serverMessage && typeof info?.cell === 'string' && info.cell) {
+    return { title: '无法导入：请检查指定单元格', message: serverMessage }
+  }
+  if (code === 'formula_not_allowed' || raw.includes('formula_not_allowed')) {
+    return {
+      title: '无法导入：发现 Excel 公式',
+      message: `${sheetLabel}的待导入列包含 Excel 公式。公式可能在表格软件中执行，也可能使导入结果与看到的值不一致。请将公式结果粘贴为值后重新上传。当前服务未返回具体单元格位置，请确认挖掘服务已更新。`,
+    }
+  }
+  if (code === 'type_error' || raw.includes('type_error:')) {
+    return {
+      title: '无法导入：列类型不匹配',
+      message: `${sheetLabel}中有值无法按目标列类型导入。请检查列映射与预览数据，或把「类型错误」改为「容错置空」。当前服务未返回具体单元格位置，请确认挖掘服务已更新。`,
+    }
+  }
+  if (code === 'duplicate_key' || raw.includes('duplicate_key:')) {
+    return {
+      title: '无法导入：主键值重复',
+      message: `${sheetLabel}中有两行使用了相同的主键值。请修改重复行，或把「主键冲突」改为「保留首行」。当前服务未返回具体单元格位置，请确认挖掘服务已更新。`,
+    }
+  }
+  if (code === 'unknown_source_column' || code === 'duplicate_source_column') {
+    const column = suffix ? `「${suffix}」` : ''
+    return { title: '无法导入：文件列映射有误',
+      message: `表头${column}${code === 'unknown_source_column' ? '在当前工作表中不存在' : '被重复映射'}。请重新选择工作表并检查列映射后重试。` }
+  }
+  if (code === 'missing_target_name' || code === 'invalid_column_type' || code === 'invalid_plan_column') {
+    return { title: '无法导入：目标列设置不完整',
+      message: `请检查${suffix ? `文件列「${suffix}」` : '列映射'}的目标列名和类型，补全后重新预览确认。` }
+  }
+  const globalReasons: Record<string, string> = {
+    preview_expired: '上传文件的预览已过期。请重新上传文件并确认列映射。',
+    schema_already_exists: '制品已有列定义，不能按首次建表方式导入。请将至少一列映射到已有列。',
+    no_schema: '当前制品还没有列定义，不能按追加模式导入。请先创建列定义。',
+    unknown_target_column: '目标列已不存在或发生变化。请刷新页面后重新选择目标列。',
+    invalid_conflict_policy: '类型错误或主键冲突的处理方式无效。请重新选择后再导入。',
+    unknown_sheet: '选择的工作表已不存在。请重新上传文件并选择工作表。',
+    empty_sheet: '选择的工作表没有可导入的表头或数据。请检查 Excel 文件。',
+    too_many_rows: '工作表行数超过导入上限。请拆分文件后重试。',
+    too_many_columns: '工作表列数超过导入上限。请删减列后重试。',
+    empty_column_ops: '没有设置文件列的导入方式。请返回列映射步骤重新确认。',
+    empty_plan_columns: '列映射为空。请返回列映射步骤重新确认。',
+    invalid_header_row: '表头位置无效。请重新上传文件并检查第一行是否为表头。',
+    stale_artifact: '制品已被其他操作修改。请刷新页面，重新上传并确认列映射。',
+  }
+  if (Object.prototype.hasOwnProperty.call(globalReasons, code)) {
+    return { title: '无法导入', message: `${globalReasons[code]}此问题不对应单个表头或单元格。` }
+  }
+  if (status === 401 || status === 403) {
+    return { title: '无法导入：没有操作权限', message: '当前账号没有导入权限或登录已过期。请重新登录或联系制品负责人；此问题不对应单个单元格。' }
+  }
+  if (status === 410) {
+    return { title: '无法导入：预览已过期', message: '预览有效期已结束，请重新上传文件并确认列映射；此问题不对应单个单元格。' }
+  }
+  if (status === 404) {
+    return { title: '无法导入：文件或制品已失效', message: '上传预览或制品已不存在。请刷新页面后重新上传文件；此问题不对应单个单元格。' }
+  }
+  return { title: '无法导入', message: '本次导入未完成，服务未提供可定位的表头或单元格信息。请刷新页面后重试；若仍失败，请联系管理员检查导入服务。' }
 }
 
 function resetWizard(): void {
@@ -509,12 +630,6 @@ function typeLabel(value: string): string {
   return COLUMN_TYPES.find(t => t.value === value)?.label ?? value
 }
 
-function typeTagType(value: string): 'primary' | 'success' | 'warning' | 'info' {
-  if (value === 'enum') return 'warning'
-  if (value === 'int' || value === 'float') return 'success'
-  if (value === 'date' || value === 'bool') return 'primary'
-  return 'info'
-}
 
 defineExpose({
   doUpload, runImport, confirmMapping,
@@ -526,20 +641,96 @@ defineExpose({
 .import-wizard { display: flex; flex-direction: column; gap: 12px; }
 .import-wizard__step :deep(.el-card__header) { padding: 10px 16px; }
 .import-wizard__hint { font-size: 12px; color: var(--kb-text-tertiary); font-weight: normal; }
-.import-wizard__file { margin-left: 10px; font-size: 12.5px; color: var(--kb-text-tertiary); }
-.import-wizard__sheet-row { margin-top: 10px; display: flex; align-items: center; gap: 6px; }
-.import-wizard__map { display: grid; grid-template-columns: 220px 1fr; gap: 14px; }
-.import-wizard__pane-title { font-size: 12.5px; color: var(--kb-text-tertiary); margin-bottom: 6px; }
-.import-wizard__source { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--kb-border-light, #eee); }
-.import-wizard__source-name { font-size: 13px; }
-.import-wizard__map-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--kb-border-light, #eee); flex-wrap: wrap; }
+
+/* ── 步骤条（高保真 ar-guide-steps） ── */
+.import-wizard__steps { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.import-wizard__step-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--kb-text-tertiary, #94a3b8);
+}
+.import-wizard__step-pill b {
+  display: inline-grid; place-items: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 1px solid var(--kb-border, #e2e8f0);
+  background: var(--kb-bg-card, #fff);
+  font-size: 10.5px; font-weight: 500;
+}
+.import-wizard__step-pill.is-current { color: var(--kb-accent, #0891b2); font-weight: 600; }
+.import-wizard__step-pill.is-current b {
+  color: #fff; background: var(--kb-accent, #0891b2); border-color: var(--kb-accent, #0891b2);
+}
+.import-wizard__step-pill.is-done { color: var(--kb-accent, #0891b2); }
+.import-wizard__step-pill.is-done b {
+  color: var(--kb-accent, #0891b2); border-color: var(--kb-accent, #0891b2);
+}
+.import-wizard__step-sep { color: var(--kb-text-tertiary, #94a3b8); font-size: 11px; }
+
+/* ── 拖拽上传区（高保真 ar-upload） ── */
+.import-wizard__upload :deep(.el-upload) { width: 100%; }
+.import-wizard__upload :deep(.el-upload-dragger) {
+  padding: 0;
+  border: 1px dashed var(--kb-border, #cbd5e1);
+  border-radius: 8px;
+  background: var(--kb-bg-card-hover, #f8fafc);
+  transition: border-color .14s var(--kb-ease, ease), background .14s var(--kb-ease, ease);
+}
+.import-wizard__upload :deep(.el-upload-dragger:hover),
+.import-wizard__upload :deep(.el-upload-dragger.is-dragover) {
+  border-color: var(--kb-accent, #0891b2);
+  background: var(--kb-accent-soft, rgba(8, 145, 178, 0.06));
+}
+.import-wizard__dropzone {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 26px 16px;
+}
+.import-wizard__dz-icon {
+  font-size: 30px; color: var(--kb-accent, #0891b2); opacity: .75;
+  margin-bottom: 6px;
+}
+.import-wizard__dz-title { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--kb-text-primary, inherit); }
+.import-wizard__dz-hint { margin: 0; font-size: 12px; color: var(--kb-text-tertiary, #94a3b8); }
+.import-wizard__sheet-row { margin-top: 10px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ── 列映射行（高保真 ar-map-grid：源列 → 目标） ── */
+.import-wizard__map { min-width: 0; }
+.import-wizard__map-row {
+  display: grid;
+  grid-template-columns: 250px 24px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--kb-border-light, #f1f5f9);
+  border-radius: 6px;
+  transition: background .12s var(--kb-ease, ease);
+}
+.import-wizard__map-row:hover { background: var(--kb-bg-card-hover, #f8fafc); }
 .import-wizard__map-row--drop { opacity: 0.5; }
-.import-wizard__map-source { min-width: 120px; font-size: 13px; }
+.import-wizard__source {
+  display: flex; align-items: center; gap: 7px;
+  min-width: 0;
+}
+.import-wizard__source-name {
+  min-width: 0; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 600; color: var(--kb-text-primary, inherit);
+}
+.import-wizard__type-chip {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  border-radius: 4px; padding: 1px 6px;
+  background: var(--kb-bg-card-hover, #f1f5f9);
+  color: var(--kb-text-tertiary, #94a3b8);
+}
+.import-wizard__map-arrow {
+  text-align: center;
+  color: var(--kb-text-tertiary, #94a3b8); font-size: 13px;
+}
+.import-wizard__map-controls { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .import-wizard__enum { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .import-wizard__check { display: inline-flex; align-items: center; gap: 3px; font-size: 12.5px; color: var(--kb-text-tertiary); }
 .import-wizard__missing { margin-top: 10px; }
 .import-wizard__actions { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
-.import-wizard__preview { margin-bottom: 10px; }
+.import-wizard__preview { margin-bottom: 10px; max-height: 340px; overflow-y: auto; border: 1px solid var(--kb-border, #e2e8f0); border-radius: 8px; padding: 4px 0; }
 .import-wizard__policy { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; flex-wrap: wrap; }
 .import-wizard__report { display: flex; gap: 8px; flex-wrap: wrap; }
 .import-wizard__conflicts { margin-top: 10px; }

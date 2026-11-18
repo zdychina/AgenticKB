@@ -15,8 +15,9 @@ CURRENT_SCHEMA_VERSION = "2026.09.user-lifecycle-retrieval-v1"
 # 66号批次1：加 011（wiki 目录草稿表 kb_wiki_tocs）后刷新。
 # 2026-11-10 合并 fzl194/master：整库导出与 wiki 两条分支各自用掉 010——
 # 迁移 id 含日期+表名全局唯一（双 010 保留，ledger 按整串 id 记账），合并后刷新。
-# 67号批次1：加 012（本体库六表）后刷新。
-CURRENT_SCHEMA_CHECKSUM = "9eda9f5369374a286cb0e6f63650a4dc3e2d077f29365861868a5ba5ac1cfcf6"
+# 2026-11-18 合并 upstream/master：工作台与本体两条线各自用掉 012（id 含日期+
+# 表名全局唯一，双 012 保留），合并后刷新。
+CURRENT_SCHEMA_CHECKSUM = "e915aca01d68f18f7cd5cad83e0b62debbb5d05e2f036b6fcc8719b5df580aae"
 SCHEMA_MARKER_ID = f"schema/{CURRENT_SCHEMA_VERSION}"
 MIGRATION_LEDGER_TABLE = "cmkb_schema_migrations"
 LEGACY_COMPAT_TABLES: tuple[str, ...] = ("mcp_open_kbs", "mcp_access")
@@ -95,7 +96,15 @@ FORMAL_TABLES: frozenset[str] = frozenset({
     "kb_wiki_page_units",
     # wiki 目录草稿（66号批次1，迁移 011）：设计态 toc，发布时冻结进 revisions
     "kb_wiki_tocs",
-    # 本体管理六表（67号批次1，迁移 012）：类型层（库/本体/属性/关系）+
+    # 知识制品工作台（upstream 67号 MVP，迁移 012）：登记/成员/来源/运行/输出/绑定/导出
+    "kb_workspaces",
+    "kb_workspace_members",
+    "kb_workspace_sources",
+    "kb_workspace_runs",
+    "kb_workspace_run_outputs",
+    "kb_workspace_output_bindings",
+    "kb_workspace_exports",
+    # 本体管理六表（fork 67号批次1，迁移 012）：类型层（库/本体/属性/关系）+
     # 实例层（语义对象/语义关系）
     "ontology_libraries",
     "ontologies",
@@ -135,6 +144,15 @@ PREVIOUS_RELEASE_TABLES: frozenset[str] = frozenset(
             "kb_wiki_page_links",
             "kb_wiki_page_units",
             "kb_wiki_tocs",
+            # 67号工作台七表（upstream 线，迁移 012）与本体管理六表（fork 线，
+            # 迁移 012）本版新增，源库必然缺席，一并从上一版基线扣除
+            "kb_workspaces",
+            "kb_workspace_members",
+            "kb_workspace_sources",
+            "kb_workspace_runs",
+            "kb_workspace_run_outputs",
+            "kb_workspace_output_bindings",
+            "kb_workspace_exports",
             "ontology_libraries",
             "ontologies",
             "ontology_attributes",
@@ -177,5 +195,5 @@ RETIRED_TABLES: tuple[str, ...] = (
 if len(RETIRED_TABLES) != len(set(RETIRED_TABLES)):  # pragma: no cover - import guard
     raise RuntimeError("RETIRED_TABLES contains duplicates")
 
-if EXPECTED_FORMAL_TABLES != 72:  # pragma: no cover - import guard
-    raise RuntimeError("FORMAL_TABLES must contain exactly 72 names")
+if EXPECTED_FORMAL_TABLES != 79:  # pragma: no cover - import guard
+    raise RuntimeError("FORMAL_TABLES must contain exactly 79 names")

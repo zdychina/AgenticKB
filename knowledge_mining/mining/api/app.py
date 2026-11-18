@@ -33,6 +33,9 @@ from knowledge_mining.mining.kb.routes.artifacts import router as artifacts_rout
 from knowledge_mining.mining.kb.routes.ontology import router as kb_ontology_router
 from knowledge_mining.mining.kb.routes.exports import router as kb_exports_router
 from knowledge_mining.mining.kb.routes.wiki import router as wiki_router
+from knowledge_mining.mining.kb.routes.workspaces import (
+    router as workspaces_router,
+)
 from knowledge_mining.mining.kb.routes.documents import router as kb_documents_router
 from knowledge_mining.mining.kb.routes.mining import router as kb_mining_router
 from knowledge_mining.mining.kb.routes.folders import router as kb_folders_router
@@ -330,8 +333,11 @@ def create_app() -> FastAPI:
     # 63号批次2：wiki 制品页面/链接/状态端点（同 /api/artifacts 静态前缀，
     # 紧随 artifacts 注册——与 kb_router 动态段无交集）。
     app.include_router(wiki_router)
-    # 67号：本体管理 REST。静态前缀 /api/kb/ontology——首段是字面量，必须在
-    # kb_router 的动态 /api/kb/{kb_id} 之前注册（否则 "ontology" 被当成 kb_id）。
+    # 67号（upstream 线）：知识制品工作台 REST（静态前缀 /api/workspaces，
+    # 紧随 wiki 注册——前缀与 kb_router 动态段 /api/kb/{kb_id} 无交集）。
+    app.include_router(workspaces_router)
+    # 67号（fork 线）：本体管理 REST。静态前缀 /api/kb/ontology——首段是字面量，
+    # 必须在 kb_router 的动态 /api/kb/{kb_id} 之前注册（否则 "ontology" 被当成 kb_id）。
     app.include_router(kb_ontology_router)
     # 整库导出：/api/kb/export-tasks/{task_id} 首段是字面量，必须在 kb_router
     # 的动态 /api/kb/{kb_id} 之前注册（否则 task_id 被当成 kb_id 吞掉）。

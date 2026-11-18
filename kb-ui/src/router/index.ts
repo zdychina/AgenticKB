@@ -89,7 +89,20 @@ const router = createRouter({
           props: true,
         },
         {
-          // 67号：本体管理（域成员可读——只读浏览库/本体/对象；写按钮按域管理员显隐）
+          // 67号（upstream 线）Task 10：制作工作台（制品的上游制作间；普通成员
+          // 可达——权限反探测在后端（非成员 404 与不存在同面），路由不做 admin 门）
+          path: 'workspaces',
+          name: 'workspaces',
+          component: () => import('@/views/workspaces/WorkspacesListView.vue'),
+        },
+        {
+          path: 'workspaces/:workspaceId',
+          name: 'workspace-detail',
+          component: () => import('@/views/workspaces/WorkspaceDetailView.vue'),
+          props: true,
+        },
+        {
+          // 67号（fork 线）：本体管理（域成员可读——只读浏览库/本体/对象；写按钮按域管理员显隐）
           path: 'ontology',
           name: 'ontology-libraries',
           component: () => import('@/views/ontology/OntologyLibraryListView.vue'),

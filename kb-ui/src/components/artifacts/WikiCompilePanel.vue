@@ -58,6 +58,21 @@
     <!-- ── 区块二：编译（状态机驱动）── -->
     <section class="wiki-compile__sec">
       <div class="wiki-compile__sec-head">编译</div>
+      <div v-if="status" class="wiki-compile__flow" data-test="wiki-compile-flow" aria-label="编译流程进度">
+        <div class="wiki-compile__steps">
+          <div
+            v-for="(step, index) in compileSteps"
+            :key="step"
+            class="wiki-compile__step"
+            :class="stepClass(index)"
+            :aria-current="index === activeStep && !isTerminal ? 'step' : undefined"
+          >
+            <span class="wiki-compile__step-dot">{{ index < activeStep || state === 'completed' ? '✓' : index + 1 }}</span>
+            <span class="wiki-compile__step-label">{{ step }}</span>
+          </div>
+        </div>
+        <p class="wiki-compile__flow-detail" data-test="wiki-compile-flow-detail">{{ flowDetail }}</p>
+      </div>
 
       <!-- preparing：取材+聚类（后台任务，轮询推进） -->
       <div v-if="state === 'preparing'" class="wiki-compile__phase" data-test="wiki-compile-preparing">
@@ -81,7 +96,7 @@
       <div v-else-if="state === 'writing'" class="wiki-compile__phase" data-test="wiki-compile-writing">
         <el-icon class="is-loading"><Loading /></el-icon>
         <span data-test="wiki-compile-writing-progress">
-          页面写作中…… 批次 {{ status?.progress?.batch ?? '—' }} · 已写 {{ status?.progress?.pages_done ?? 0 }} 页
+          {{ flowDetail }}
         </span>
         <el-button
           v-if="canWrite"
@@ -137,6 +152,7 @@ import type { WikiCompileStatus, WikiSource, WikiTocSection } from '@/types/arti
 
 /** 轮询周期（批次3 口径：5s）。 */
 const POLL_MS = 5000
+const compileSteps = ['取材', '聚类', '生成目录', '确认目录', '页面写作', '质量收尾'] as const
 const IN_FLIGHT = new Set(['preparing', 'awaiting_toc', 'writing'])
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
 /** 轮询态=preparing/writing——**不含 awaiting_toc**：该态服务端在等用户
@@ -178,6 +194,40 @@ const cancelling = ref(false)
 const state = computed(() => String(status.value?.state ?? ''))
 const isTerminal = computed(() => TERMINAL.has(state.value))
 const anyDirty = computed(() => sources.value.some(s => s.dirty === true))
+const activeStep = computed(() => {
+  const phase = status.value?.phase
+  if (state.value === 'completed') return compileSteps.length
+  if (state.value === 'awaiting_toc') return 3
+  if (state.value === 'writing') return phase === 'quality_check' || phase === 'finishing' ? 5 : 4
+  if (phase === 'clustering') return 1
+  if (phase === 'toc_generation') return 2
+  if (phase === 'awaiting_toc') return 3
+  if (phase === 'writing_pages') return 4
+  if (phase === 'quality_check' || phase === 'finishing') return 5
+  return 0
+})
+const flowDetail = computed(() => {
+  if (state.value === 'completed') return '编译完成'
+  if (state.value === 'failed') return '编译失败，详情见下方报告'
+  if (state.value === 'cancelled') return '编译已取消'
+  if (state.value === 'awaiting_toc') return '目录已生成，等待确认后继续写作'
+  if (state.value === 'writing') {
+    if (status.value?.phase === 'quality_check') return '页面写作已结束，正在检查内容质量'
+    if (status.value?.phase === 'finishing') return '质量检查已结束，正在生成专题页并收尾'
+    const batch = status.value?.progress?.batch
+    return `正在写作页面${batch && batch !== '0/0' ? ` · 批次 ${batch}` : ''} · 已写 ${status.value?.progress?.pages_done ?? 0} 页`
+  }
+  if (status.value?.phase === 'clustering') return '取材完成，正在聚类'
+  if (status.value?.phase === 'toc_generation') return '聚类完成，正在生成目录草案'
+  return '正在读取绑定来源的知识单元'
+})
+
+function stepClass(index: number): string {
+  if (state.value === 'completed' || index < activeStep.value) return 'is-done'
+  if (index === activeStep.value) return state.value === 'failed' || state.value === 'cancelled'
+    ? 'is-stopped' : 'is-current'
+  return 'is-pending'
+}
 
 const idleHint = computed(() => {
   if (state.value === 'completed') return '上一轮编译已完成'
@@ -375,22 +425,94 @@ function errorCode(error: unknown): string | undefined {
 
 <style scoped>
 .wiki-compile { display: flex; flex-direction: column; gap: 14px; }
-.wiki-compile__sec { display: flex; flex-direction: column; gap: 8px; }
-.wiki-compile__sec-head {
-  font-weight: 600; font-size: 13.5px; color: var(--kb-text-primary, inherit);
-  border-left: 3px solid var(--el-color-primary, #2563eb); padding-left: 8px;
+/* 区块=hairline 卡（与 Wiki 阅读壳卡同一节奏）；标题走详情页 sec-head 语言
+   （2026-11-13 用户两轮反馈「字又小」——11px 眉标弃用，13.5px 可读标题）。 */
+.wiki-compile__sec {
+  display: flex; flex-direction: column; gap: 10px;
+  border: 1px solid var(--kb-border-light, #f1f5f9);
+  border-radius: 10px;
+  padding: 13px 16px 14px;
+  background: var(--kb-bg-card, #fff);
 }
-.wiki-compile__sources { display: flex; flex-direction: column; gap: 4px; }
-.wiki-compile__src { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--el-border-color-lighter, #ebeef5); border-radius: 6px; }
+.wiki-compile__sec-head {
+  font-size: 13.5px; font-weight: 600;
+  color: var(--kb-text-primary, inherit);
+  display: flex; align-items: center; gap: 8px;
+}
+.wiki-compile__sec-head::before {
+  content: ''; width: 3px; height: 13px; border-radius: 2px;
+  background: var(--kb-accent, #0891b2); flex-shrink: 0;
+}
+
+/* ── 六步流程条：连接线 + 状态点 ── */
+.wiki-compile__flow {
+  padding: 14px 16px 12px; border: 1px solid var(--kb-border, #e2e8f0); border-radius: 8px;
+  background: var(--kb-bg-card, #fff);
+}
+.wiki-compile__steps { display: flex; align-items: center; gap: 0; flex-wrap: wrap; }
+.wiki-compile__step {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+  color: var(--kb-text-tertiary, #94a3b8); font-size: 12.5px;
+}
+.wiki-compile__step + .wiki-compile__step { margin-left: 26px; position: relative; }
+.wiki-compile__step + .wiki-compile__step::before {
+  content: ''; position: absolute; left: -19px; top: 50%;
+  width: 12px; height: 1px; background: var(--kb-border, #e2e8f0);
+}
+.wiki-compile__step-dot {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 22px;
+  height: 22px; border: 1px solid var(--kb-border, #e2e8f0); border-radius: 50%;
+  font-size: 11px; font-weight: 600;
+  transition: all .18s var(--kb-ease, ease);
+}
+.wiki-compile__step.is-done { color: var(--kb-accent, #0891b2); }
+.wiki-compile__step.is-done .wiki-compile__step-dot {
+  border-color: var(--kb-accent, #0891b2); background: var(--kb-accent, #0891b2); color: #fff;
+}
+.wiki-compile__step.is-current { color: var(--kb-accent, #0891b2); font-weight: 600; }
+.wiki-compile__step.is-current .wiki-compile__step-dot {
+  color: var(--kb-accent, #0891b2); background: var(--kb-accent-soft, rgba(8, 145, 178, 0.08));
+  border-color: var(--kb-accent, #0891b2);
+  box-shadow: 0 0 0 4px var(--kb-accent-soft, rgba(8, 145, 178, 0.08));
+}
+.wiki-compile__step.is-stopped { color: var(--kb-warning, #f59e0b); font-weight: 600; }
+.wiki-compile__step.is-stopped .wiki-compile__step-dot {
+  border-color: var(--kb-warning, #f59e0b); color: var(--kb-warning, #f59e0b);
+}
+.wiki-compile__flow-detail {
+  margin: 10px 0 0; padding-top: 9px; border-top: 1px solid var(--kb-border-light, #f1f5f9);
+  color: var(--kb-text-secondary, #64748b); font-size: 12.5px;
+}
+@media (max-width: 1100px) { .wiki-compile__steps { gap: 8px; } .wiki-compile__step + .wiki-compile__step { margin-left: 0; } .wiki-compile__step + .wiki-compile__step::before { display: none; } }
+
+/* ── 来源绑定 ── */
+.wiki-compile__sources { display: flex; flex-direction: column; gap: 6px; }
+.wiki-compile__src {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+  border: 1px solid var(--kb-border, #e2e8f0); border-radius: 8px;
+  background: var(--kb-bg-card, #fff);
+  transition: border-color .14s var(--kb-ease, ease), box-shadow .14s var(--kb-ease, ease);
+}
+.wiki-compile__src:hover {
+  border-color: var(--kb-accent-medium, rgba(8, 145, 178, 0.15));
+  box-shadow: var(--kb-shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.04));
+}
 .wiki-compile__src-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.wiki-compile__src-title { font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.wiki-compile__src-title { font-size: 13px; font-weight: 600; color: var(--kb-text-primary, inherit); display: inline-flex; align-items: center; gap: 4px; }
 .wiki-compile__dirs { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.wiki-compile__empty { margin: 0; font-size: 12.5px; color: var(--kb-text-tertiary); }
+.wiki-compile__empty { margin: 0; padding: 10px 2px; font-size: 12.5px; color: var(--kb-text-tertiary); }
 .wiki-compile__add { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .wiki-compile__add-domain { width: 180px; }
 .wiki-compile__add-kb { width: 260px; }
 .wiki-compile__add-dirs { flex: 1; min-width: 240px; }
-.wiki-compile__phase { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
-.wiki-compile__idle { display: flex; align-items: center; gap: 12px; }
+
+.wiki-compile__phase {
+  display: flex; align-items: center; gap: 10px; font-size: 13.5px;
+  padding: 10px 14px; border-radius: 8px;
+  background: var(--kb-bg-card-hover, #f8fafc);
+  border: 1px solid var(--kb-border-light, #f1f5f9);
+}
+.wiki-compile__phase .el-icon { color: var(--kb-accent, #0891b2); }
+.wiki-compile__idle { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .wiki-compile__hint { font-size: 12.5px; color: var(--kb-text-tertiary); }
 </style>

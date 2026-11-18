@@ -91,7 +91,16 @@ EXPORT_TABLES = [
     "kb_wiki_page_units",
     # wiki 目录草稿（66号批次1，迁移 011，019 启动链同文；无外键）
     "kb_wiki_tocs",
-    # 本体管理六表（67号批次1，迁移 012，021 启动链同文）：类型层+实例层，
+    # 知识制品工作台（upstream 67号 MVP，迁移 012，021 启动链同文）：父表先导
+    # （workspaces→members/sources，runs→run_outputs；bindings/exports 无外键）
+    "kb_workspaces",
+    "kb_workspace_members",
+    "kb_workspace_sources",
+    "kb_workspace_runs",
+    "kb_workspace_run_outputs",
+    "kb_workspace_output_bindings",
+    "kb_workspace_exports",
+    # 本体管理六表（fork 67号批次1，迁移 012，022 启动链同文）：类型层+实例层，
     # 按外键依赖序（libraries→ontologies→attributes/relations→objects→edges；
     # created_by 引用的 kb_users 已在列表前段导出）
     "ontology_libraries",

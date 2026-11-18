@@ -25,6 +25,11 @@ MIRROR_PAIRS = [
      "databases/migrations/core/20261021_010_wiki_artifacts.sql"),
     ("databases/kb/schemas/019_wiki_toc.sql",
      "databases/migrations/core/20261103_011_wiki_toc.sql"),
+    ("databases/kb/schemas/021_kb_workspaces.sql",
+     "databases/migrations/core/20261116_012_kb_workspaces.sql"),
+    # fork 67号：本体库六表（2026-11-18 合并改号 021→022，迁移 id 不变）
+    ("databases/kb/schemas/022_ontology_library.sql",
+     "databases/migrations/core/20261117_012_ontology_library.sql"),
 ]
 
 
