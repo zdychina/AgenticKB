@@ -27,6 +27,10 @@ _SERVICE_ONLY_ROUTES = frozenset({
     ("POST", "/api/kb/mcp-tools/list-documents"),
     ("POST", "/api/kb/mcp-tools/browse-directory"),
     ("POST", "/api/kb/mcp-tools/begin-upload"),
+    # 69号：本体图查询三件套（同上，路由内自验 X-Internal-Auth）。
+    ("POST", "/api/kb/mcp-tools/ontology/list-libraries"),
+    ("POST", "/api/kb/mcp-tools/ontology/library-graph"),
+    ("POST", "/api/kb/mcp-tools/ontology/object-neighbors"),
     ("POST", "/api/kb/admin/reload-auth-config"),
     ("POST", "/api/internal/retrieval-records"),
     ("POST", "/api/internal/retrieval-records/expire-pending-uploads"),

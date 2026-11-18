@@ -1,6 +1,15 @@
 {
-  "current": "1.1.50",
+  "current": "1.1.51",
   "releases": [
+    {
+      "version": "1.1.51",
+      "released_at": "2026-11-18",
+      "title": "热修：69号 MCP 图查询三端点漏登 auth_guard 服务豁免集（1.1.50 实发）",
+      "changes": [
+        "1.1.50 生产实发：list_ontology_libraries / query_ontology_graph / get_semantic_neighbors 三工具调用全部 HTTP 401 unauthenticated——三个新端点 /api/kb/mcp-tools/ontology/* 未登记 auth_guard._SERVICE_ONLY_ROUTES，网关身份中间件抢先 401（路由内 X-Internal-Auth 自验根本没机会跑，58号勘误同型缺陷）",
+        "补登三条豁免；真库测试直调路由不走中间件故全绿漏网，既有反向守卫 test_mcp_tools_post_routes_are_service_exempt 本可拦住（实施时未跑该文件），本次复跑 25/25 全绿"
+      ]
+    },
     {
       "version": "1.1.50",
       "released_at": "2026-11-18",
