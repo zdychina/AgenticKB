@@ -30,11 +30,18 @@ MIRROR_PAIRS = [
     # fork 67号：本体库六表（2026-11-18 合并改号 021→022，迁移 id 不变）
     ("databases/kb/schemas/022_ontology_library.sql",
      "databases/migrations/core/20261117_012_ontology_library.sql"),
+    # 69号批次0：抽取溯源列（ALTER-only，无 CREATE TABLE——_ddl_body 走全量回退）
+    ("databases/kb/schemas/023_semantic_object_provenance.sql",
+     "databases/migrations/core/20261118_013_semantic_object_provenance.sql"),
 ]
 
 
 def _ddl_body(path: Path) -> list[str]:
-    """读 SQL 文件，归一后返回首个 CREATE TABLE 起的行列表。"""
+    """读 SQL 文件，归一后返回首个 CREATE TABLE 起的行列表。
+
+    ALTER-only 文件（如 023 溯源列，无新表）没有 CREATE TABLE：回退为返回
+    归一后的全部行——两侧同为 ALTER-only 时镜像口径不受影响。
+    """
     if not path.is_file():
         pytest.fail(f"镜像文件缺失：{path}")
     raw = path.read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -44,7 +51,7 @@ def _ddl_body(path: Path) -> list[str]:
     for idx, ln in enumerate(lines):
         if "CREATE TABLE" in ln.upper():
             return lines[idx:]
-    pytest.fail(f"{path} 中未找到 CREATE TABLE，无法抽取镜像 DDL 主体")
+    return lines
 
 
 @pytest.mark.parametrize(("startup_path", "migration_path"), MIRROR_PAIRS,

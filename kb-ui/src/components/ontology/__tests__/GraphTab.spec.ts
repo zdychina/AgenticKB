@@ -10,6 +10,7 @@ const g6 = vi.hoisted(() => {
     lastData: { nodes: unknown[]; edges: unknown[] } | null = null
     rendered = 0
     destroyed = false
+    focused: string[] = []
     constructor(opts: Record<string, unknown>) {
       this.opts = opts
       Graph.instances.push(this)
@@ -22,6 +23,9 @@ const g6 = vi.hoisted(() => {
     }
     async render() {
       this.rendered += 1
+    }
+    async focusElement(id: string) {
+      this.focused.push(id)
     }
     async fitView() {}
     async toDataURL() {
@@ -39,11 +43,17 @@ const state = vi.hoisted(() => ({
   api: {
     getLibraryGraph: vi.fn(), getObject: vi.fn(), getObjectNeighbors: vi.fn(),
   },
-  ui: { error: vi.fn(), warning: vi.fn() },
+  ui: { error: vi.fn(), warning: vi.fn(), info: vi.fn() },
+  router: { push: vi.fn(), replace: vi.fn() },
+  route: { query: {} as Record<string, unknown>, params: {} },
+}))
+vi.mock('vue-router', () => ({
+  useRouter: () => state.router,
+  useRoute: () => state.route,
 }))
 vi.mock('@/api/ontology', () => ({ useOntologyApi: () => state.api }))
 vi.mock('element-plus', () => ({
-  ElMessage: { error: state.ui.error, warning: state.ui.warning },
+  ElMessage: { error: state.ui.error, warning: state.ui.warning, info: state.ui.info },
 }))
 
 import GraphTab from '../GraphTab.vue'
@@ -57,6 +67,7 @@ interface GraphTabVm {
   drawerLoading: boolean
   drawerDetail: { name: string } | null
   drawerNeighbors: { outgoing: unknown[]; incoming: unknown[] }
+  openSourceDocument: () => void
   load: () => Promise<void>
   renderGraph: () => Promise<void>
   toggleOntology: (id: string) => void
@@ -83,7 +94,7 @@ const graph = {
 
 interface DisplayNode {
   id: string
-  data: { name: string; color: string; dim: boolean }
+  data: { name: string; color: string; dim: boolean; focus?: boolean }
 }
 interface DisplayEdge {
   id: string
@@ -132,6 +143,10 @@ describe('graph tab — 实例图渲染（68号 §四）', () => {
       incoming: [],
     })
     state.ui.error.mockReset()
+    state.ui.info.mockReset()
+    state.router.push.mockReset()
+    state.router.replace.mockReset()
+    state.route.query = {}
   })
 
   it('loads the graph and renders ontology-colored nodes with labeled edges', async () => {
@@ -319,5 +334,116 @@ describe('graph tab — 实例图渲染（68号 §四）', () => {
     await flushPromises()
     expect(vm.drawerDetail?.name).toBe('切片1')  // 迟到的旧响应不覆盖
     expect(vm.drawerLoading).toBe(false)
+  })
+
+  it('drawer shows the source document line for extract objects (69号溯源)', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as GraphTabVm
+
+    state.api.getObject.mockResolvedValue({
+      id: 'obj-amf', library_id: 'lib-1', ontology_id: 'onto-device',
+      ontology_name: '设备', name: 'AMF', attributes_json: null,
+      source: 'extract', created_by: 'u1',
+      created_at: '2026-11-17T08:00:00+00:00', updated_at: '2026-11-17T08:00:00+00:00',
+      attribute_defs: [], outgoing_count: 0, incoming_count: 0,
+      source_document_id: 'doc-1', source_document_name: 'AMF开局指导书.md',
+      source_kb_id: 'kb-9',
+    })
+    lastGraph().clickNode('obj-amf')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('AMF开局指导书.md')
+    vm.openSourceDocument()
+    expect(state.router.push).toHaveBeenCalledWith({
+      name: 'kb-doc-preview',
+      params: { kbId: 'kb-9', docId: 'doc-1' },
+    })
+  })
+
+  it('focus prop locates the node, outlines it and clears the query (69号 §4.3)', async () => {
+    state.route.query = { tab: 'graph', focus: 'obj-smf' }
+    const wrapper = shallowMount(GraphTab, {
+      props: { libraryId: 'lib-1', ontologies, focus: 'obj-smf' },
+    })
+    await flushPromises()
+
+    // 视口居中 + 描边强调（新 focus 态，不开抽屉）
+    expect(g6.Graph.instances[0].focused).toEqual(['obj-smf'])
+    const smf = lastGraph().nodes.find(n => n.id === 'obj-smf')!
+    const amf = lastGraph().nodes.find(n => n.id === 'obj-amf')!
+    expect(smf.data.focus).toBe(true)
+    expect(amf.data.focus).toBe(false)
+    const vm = wrapper.vm as unknown as GraphTabVm
+    expect(vm.drawerVisible).toBe(false)
+    // 消费后清 URL 的 focus 键（tab 保留）
+    expect(state.router.replace).toHaveBeenCalledWith({ query: { tab: 'graph' } })
+  })
+
+  it('focus on a node excluded by the ontology filter re-enables it first', async () => {
+    state.route.query = {}
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as GraphTabVm
+
+    // 隐藏「设备」本体（目标节点所在本体）后再聚焦
+    vm.toggleOntology('onto-device')
+    await flushPromises()
+    expect(lastGraph().nodes.map(n => n.id)).toEqual(['obj-slice'])
+
+    await wrapper.setProps({ focus: 'obj-amf' })
+    await flushPromises()
+
+    // 过滤被自动清掉，节点回图并定位
+    expect(vm.legendChips.find(c => c.id === 'onto-device')!.off).toBe(false)
+    expect(lastGraph().nodes.map(n => n.id)).toHaveLength(3)
+    expect(g6.Graph.instances[0].focused).toEqual(['obj-amf'])
+  })
+
+  it('focus missing due to truncation refetches with the object ontology and locates', async () => {
+    state.route.query = { focus: 'obj-hidden' }
+    // 首拉：截断图（不含目标节点）
+    state.api.getLibraryGraph.mockResolvedValueOnce({
+      nodes: [
+        { id: 'obj-amf', name: 'AMF', ontology_id: 'onto-device', ontology_name: '设备' },
+      ],
+      edges: [], total_objects: 2500, truncated: true,
+    })
+    // 兜底重拉：带目标本体的过滤图（含目标节点）
+    state.api.getLibraryGraph.mockResolvedValueOnce({
+      nodes: [
+        { id: 'obj-amf', name: 'AMF', ontology_id: 'onto-device', ontology_name: '设备' },
+        { id: 'obj-hidden', name: 'UPF-99', ontology_id: 'onto-device', ontology_name: '设备' },
+      ],
+      edges: [], total_objects: 2, truncated: false,
+    })
+    state.api.getObject.mockResolvedValue({
+      id: 'obj-hidden', library_id: 'lib-1', ontology_id: 'onto-device',
+      ontology_name: '设备', name: 'UPF-99',
+    })
+    shallowMount(GraphTab, {
+      props: { libraryId: 'lib-1', ontologies, focus: 'obj-hidden' },
+    })
+    await flushPromises()
+
+    expect(state.api.getObject).toHaveBeenCalledWith('obj-hidden')
+    expect(state.api.getLibraryGraph).toHaveBeenLastCalledWith('lib-1', {
+      ontology_ids: ['onto-device'],
+    })
+    expect(g6.Graph.instances[0].focused).toEqual(['obj-hidden'])
+    expect(lastGraph().nodes.map(n => n.id)).toContain('obj-hidden')
+  })
+
+  it('focus target absent from an untruncated graph degrades with a hint', async () => {
+    state.ui.info.mockReset()
+    state.route.query = { focus: 'obj-gone' }
+    shallowMount(GraphTab, {
+      props: { libraryId: 'lib-1', ontologies, focus: 'obj-gone' },
+    })
+    await flushPromises()
+
+    expect(state.api.getObject).not.toHaveBeenCalled()
+    expect(state.ui.info).toHaveBeenCalledWith(expect.stringContaining('未在当前库图谱中找到'))
+    expect(state.router.replace).toHaveBeenCalled()
   })
 })

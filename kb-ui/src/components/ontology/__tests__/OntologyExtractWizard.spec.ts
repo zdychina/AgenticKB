@@ -65,6 +65,7 @@ interface WizardVm {
   buildInstantiatePayload: () => {
     ontology_id: string
     source: 'extract'
+    source_document_id?: string
     objects: Array<{ name: string; attributes: Record<string, unknown> }>
     relations: Array<{
       ontology_relation_id: string
@@ -259,6 +260,20 @@ describe('ontology extract wizard — AI 抽取五步向导（67号 §八）', (
     const payload = vm.buildInstantiatePayload()
     expect(payload.objects).toEqual([{ name: 'SMF', attributes: {} }])
     expect(payload.relations).toEqual([])
+  })
+
+  it('includes source_document_id only for the kb_document source (69号溯源)', async () => {
+    const vm = mountedVm()
+    vm.ontologyId = 'onto-device'
+    await vm.seedRows(candidates)
+
+    vm.sourceKind = 'kb_document'
+    vm.documentId = 'doc-amf-guide'
+    expect(vm.buildInstantiatePayload().source_document_id).toBe('doc-amf-guide')
+
+    // text/file 源无文档可溯：不带键（后端也只认 extract 通道）
+    vm.sourceKind = 'text'
+    expect(vm.buildInstantiatePayload().source_document_id).toBeUndefined()
   })
 
   it('commits via instantiate, emits instantiated and shows the counts', async () => {

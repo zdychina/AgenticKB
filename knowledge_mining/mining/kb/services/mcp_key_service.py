@@ -64,15 +64,19 @@ MAX_KEY_NAME_LEN = 64
 KEY_PREFIX_TAG = "kbm_"
 _KEY_RANDOM_BYTES = 32
 
-#: MCP 工具族三件套（2026-08-31 用户两轮拍板"功能类似必须合并"；58号
-#: upload_document → manage_files 改名——上传/替换双 action）——open_tools
-#: 白名单与描述键的校验基线，与 mcp_server 的工具注册一一对应：
+#: MCP 工具族（2026-08-31 用户两轮拍板"功能类似必须合并"；58号
+#: upload_document → manage_files 改名——上传/替换双 action；69号 P0 追加
+#: 本体图查询只读三件套）——open_tools 白名单与描述键的校验基线，与
+#: mcp_server 的工具注册一一对应：
 #: - get_knowledge = get_content + browse_knowledge + inspect_knowledge +
 #:   navigate_structure + query_structured_asset（一切读取行为）
 MCP_TOOL_NAMES = frozenset({
     "search_knowledge",
     "get_knowledge",
     "manage_files",
+    "list_ontology_libraries",
+    "query_ontology_graph",
+    "get_semantic_neighbors",
 })
 
 #: 工具族合并改名映射（2026-08-31 两轮 9→7→3 + 58号 manage_files 改名）：

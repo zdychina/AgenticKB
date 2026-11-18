@@ -12,6 +12,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const kbApi = vi.hoisted(() => ({ updateKb: vi.fn() }))
 const operatorApi = vi.hoisted(() => ({ listParadigms: vi.fn() }))
+const ontologyApi = vi.hoisted(() => ({ searchObjects: vi.fn() }))
 const servingApi = vi.hoisted(() => ({
   resolveParadigm: vi.fn(),
   runParadigmSearch: vi.fn(),
@@ -22,6 +23,7 @@ const routerPush = vi.hoisted(() => vi.fn())
 
 vi.mock('@/api/kb', () => ({ useKbApi: () => kbApi }))
 vi.mock('@/api/operator', () => ({ useOperatorApi: () => operatorApi }))
+vi.mock('@/api/ontology', () => ({ useOntologyApi: () => ontologyApi }))
 vi.mock('@/api/serving', () => ({ useServingApi: () => servingApi }))
 vi.mock('@/api/proxyClient', () => ({ apiErrorDetail: async () => '网络错误' }))
 vi.mock('@/stores/domain', () => ({
@@ -75,6 +77,7 @@ describe('A1 检索面板来源入口', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     operatorApi.listParadigms.mockResolvedValue([])
+    ontologyApi.searchObjects.mockResolvedValue({ truncated: false, hits: [] })
     servingApi.resolveParadigm.mockResolvedValue({
       bound: true, paradigmId: 'p1', name: '混合检索', version: 1, source: 'official',
     })
@@ -177,5 +180,103 @@ describe('A1 检索面板来源入口', () => {
     }])
     const links = wrapper.findAll('.kb-search__src-link')
     expect(links.length).toBe(0)
+  })
+})
+
+describe('69号 §4.2 语义对象卡组（域级本体库命中）', () => {
+  const HIT = {
+    object_id: 'obj-amf', object_name: 'AMF', source_document_id: null,
+    ontology_id: 'onto-device', library_id: 'lib-1', library_name: '核心网本体库',
+    ontology_name: '网元', degree: 3,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    operatorApi.listParadigms.mockResolvedValue([])
+    ontologyApi.searchObjects.mockResolvedValue({ truncated: false, hits: [HIT] })
+    servingApi.resolveParadigm.mockResolvedValue({
+      bound: true, paradigmId: 'p1', name: '混合检索', version: 1, source: 'official',
+    })
+    servingApi.runParadigmSearch.mockResolvedValue({
+      evidenceResponse: { evidence: [], has_more: false },
+    })
+  })
+
+  it('检索并行发对象搜索，命中渲染卡组（域级标注 + 度数）', async () => {
+    const wrapper = await mountPanel()
+    await wrapper.find('input').setValue('AMF')
+    await wrapper.find('input').trigger('keyup.enter')
+    await flushPromises()
+
+    expect(ontologyApi.searchObjects).toHaveBeenCalledWith('generic', 'AMF')
+    const group = wrapper.find('[data-testid="kb-search-objects"]')
+    expect(group.exists()).toBe(true)
+    expect(group.text()).toContain('域级本体库')
+    const card = wrapper.find('[data-testid="kb-search-object-card"]')
+    expect(card.text()).toContain('AMF')
+    expect(card.text()).toContain('网元')
+    expect(card.text()).toContain('核心网本体库')
+    expect(card.text()).toContain('3 关联')
+    // truncated 时提示还有更多
+    expect(group.text()).not.toContain('还有更多未列出')
+  })
+
+  it('无命中整组隐藏，不占位', async () => {
+    ontologyApi.searchObjects.mockResolvedValue({ truncated: false, hits: [] })
+    const wrapper = await mountPanel()
+    await wrapper.find('input').setValue('查无此物')
+    await wrapper.find('input').trigger('keyup.enter')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="kb-search-objects"]').exists()).toBe(false)
+  })
+
+  it('对象搜索失败静默隐藏卡组，不影响证据列（失败隔离）', async () => {
+    ontologyApi.searchObjects.mockRejectedValue(new Error('boom'))
+    const wrapper = await mountPanel()
+    servingApi.runParadigmSearch.mockResolvedValue({
+      evidenceResponse: {
+        evidence: [{ ref: 'ev_1', type: 'prose', content: '证据仍在' }],
+        has_more: false,
+      },
+    })
+    await wrapper.find('input').setValue('AMF')
+    await wrapper.find('input').trigger('keyup.enter')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="kb-search-objects"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('证据仍在')
+  })
+
+  it('卡片点击 → 图谱聚焦跳转（tab=graph + focus）', async () => {
+    const wrapper = await mountPanel()
+    await wrapper.find('input').setValue('AMF')
+    await wrapper.find('input').trigger('keyup.enter')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="kb-search-object-card"]').trigger('click')
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'ontology-library-detail',
+      params: { libraryId: 'lib-1' },
+      query: { tab: 'graph', focus: 'obj-amf' },
+    })
+  })
+
+  it('快速连搜：过期对象响应不落新结果（代际快照）', async () => {
+    let resolveFirst: (value: unknown) => void = () => {}
+    ontologyApi.searchObjects
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+      .mockResolvedValue({ truncated: false, hits: [] })
+    const wrapper = await mountPanel()
+    await wrapper.find('input').setValue('AMF')
+    await wrapper.find('input').trigger('keyup.enter')
+    await wrapper.find('input').setValue('SMF')
+    await wrapper.find('input').trigger('keyup.enter')
+    await flushPromises()
+
+    // 第二次（空结果）已渲染；第一次的迟到命中必须被丢弃
+    resolveFirst({ truncated: false, hits: [HIT] })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="kb-search-objects"]').exists()).toBe(false)
   })
 })

@@ -83,6 +83,30 @@
 
     <!-- 结果（批次8 R8：EvidenceResponse 协议——type/content/source/truncated，无 score/rank） -->
     <div v-if="error" class="kb-search__error">{{ error }}</div>
+    <!-- 69号 §4.2：语义对象卡组（域级本体库命中——与证据列并行的另一路，teal 区分） -->
+    <div v-if="objectHits.length" class="kb-search__objects" data-testid="kb-search-objects">
+      <div class="kb-search__objects-head">
+        <span class="kb-search__objects-title">语义对象</span>
+        <span class="kb-search__objects-scope">域级本体库</span>
+        <span v-if="objectsTruncated" class="kb-search__objects-more">还有更多未列出</span>
+      </div>
+      <div class="kb-search__object-grid">
+        <button
+          v-for="h in objectHits"
+          :key="h.object_id"
+          type="button"
+          class="kb-search__object-card"
+          data-testid="kb-search-object-card"
+          title="在图谱中查看该对象"
+          @click="jumpToObject(h)"
+        >
+          <span class="kb-search__object-name">{{ h.object_name }}</span>
+          <el-tag size="small" effect="plain" class="kb-search__object-onto">{{ h.ontology_name }}</el-tag>
+          <span class="kb-search__object-lib">{{ h.library_name }}</span>
+          <span class="kb-search__object-degree">{{ h.degree }} 关联</span>
+        </button>
+      </div>
+    </div>
     <template v-if="evidence.length">
       <div class="kb-search__meta">
         证据 {{ evidence.length }} 条<span v-if="hasMore">（预算内未全列，has_more）</span>
@@ -158,10 +182,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useKbApi } from '@/api/kb'
 import { useOperatorApi } from '@/api/operator'
+import { useOntologyApi } from '@/api/ontology'
 import { useServingApi, type ParadigmResolveResult } from '@/api/serving'
 import { apiErrorDetail } from '@/api/proxyClient'
 import { useDomainStore } from '@/stores/domain'
 import type { KbSummary } from '@/types/kb'
+import type { OntologyObjectSearchHit } from '@/types/ontology'
 import type { EvidenceItem, ParadigmView } from '@/types/operator'
 
 const props = defineProps<{
@@ -174,6 +200,7 @@ const emit = defineEmits<{ updated: []; goMining: [] }>()
 
 const kbApi = useKbApi()
 const operatorApi = useOperatorApi()
+const ontologyApi = useOntologyApi()
 const servingApi = useServingApi()
 const domainStore = useDomainStore()
 const router = useRouter()
@@ -196,6 +223,8 @@ function clearScope() {
   if (scope.value) scope.value = null
   else scopeDocumentRef.value = null
   evidence.value = []
+  objectHits.value = []
+  objectsTruncated.value = false
   searched.value = false
 }
 const scopeModeLabel = computed(() =>
@@ -257,6 +286,39 @@ const hasMore = ref(false)
 const effective = ref<{ name: string; version: number; sourceLabel: string } | null>(null)
 const configurationError = ref('')
 let reloadGeneration = 0
+
+// ── 69号 §4.2：语义对象卡组（域级本体库命中，与证据结果并行）──
+const objectHits = ref<OntologyObjectSearchHit[]>([])
+const objectsTruncated = ref(false)
+
+/**
+ * 并行对象搜索：与范式检索同时发出、互不阻塞；并入同一 searchGeneration
+ * 代际快照（快速连搜时过期响应一并丢弃）。失败静默隐藏卡组——融合是
+ * 可选增强，不弹错误条、不影响证据列。
+ */
+async function runObjectSearch(q: string, generation: number, kbId: string) {
+  const domain = domainStore.currentDomain
+  if (!domain) return
+  try {
+    const out = await ontologyApi.searchObjects(domain, q)
+    if (generation !== searchGeneration || kbId !== props.kb.id) return
+    objectHits.value = out.hits
+    objectsTruncated.value = out.truncated
+  } catch {
+    if (generation !== searchGeneration || kbId !== props.kb.id) return
+    objectHits.value = []
+    objectsTruncated.value = false
+  }
+}
+
+/** 卡片点击 → 图谱聚焦（69号 §4.3）：目标库图谱 Tab 定位该对象。 */
+function jumpToObject(h: OntologyObjectSearchHit) {
+  void router.push({
+    name: 'ontology-library-detail',
+    params: { libraryId: h.library_id },
+    query: { tab: 'graph', focus: h.object_id },
+  })
+}
 
 const activeParadigms = computed(() => paradigms.value.filter(p => p.status === 'active'))
 
@@ -353,6 +415,8 @@ async function run() {
   const generation = ++searchGeneration
   const kbId = props.kb.id
   const dirSnapshot = directoryScope.value
+  // 69号 §4.2：对象搜索并行发出，不阻塞证据结果渲染（失败静默隐藏卡组）
+  void runObjectSearch(q, generation, kbId)
   try {
     const out = await servingApi.runParadigmSearch(resolved.paradigmId, q, {
       domain: domainStore.currentDomain ?? undefined,
@@ -477,6 +541,8 @@ watch(() => props.kb.id, () => {
   evidence.value = []
   hasMore.value = false
   effective.value = null
+  objectHits.value = []
+  objectsTruncated.value = false
   scope.value = null
   scopeDocumentRef.value = null
   // 57号审查H-2：目录范围一并清——否则 A 库的 prefix 静默过滤 B 库（且 B 库
@@ -637,4 +703,67 @@ onMounted(reload)
 }
 
 .kb-search__item-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+
+/* ── 69号 §4.2：语义对象卡组（域级本体库命中，teal 主强调与证据卡区分）── */
+.kb-search__objects {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--kb-accent-soft);
+}
+
+.kb-search__objects-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.kb-search__objects-title { font-size: 13px; font-weight: 600; color: var(--kb-accent); }
+
+/* 口径标注：检索面板是库上下文，对象是域上下文——必须写明避免误读 */
+.kb-search__objects-scope {
+  font-size: 11.5px;
+  color: var(--kb-text-tertiary);
+}
+
+.kb-search__objects-more {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--kb-text-tertiary);
+}
+
+.kb-search__object-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kb-search__object-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--kb-accent, #0891b2);
+  background: var(--kb-bg-card, #fff);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--kb-text-primary);
+  transition: box-shadow var(--kb-duration, 0.2s) var(--kb-ease, ease),
+    transform var(--kb-duration, 0.2s) var(--kb-ease, ease);
+}
+
+.kb-search__object-card:hover { box-shadow: var(--kb-shadow-xs, 0 1px 3px rgba(0, 0, 0, 0.12)); transform: translateY(-1px); }
+
+.kb-search__object-name { font-weight: 600; }
+
+.kb-search__object-onto { flex: none; }
+
+.kb-search__object-lib { font-size: 11.5px; color: var(--kb-text-tertiary); }
+
+.kb-search__object-degree {
+  font-size: 11.5px;
+  color: var(--kb-accent);
+  font-variant-numeric: tabular-nums;
+}
 </style>

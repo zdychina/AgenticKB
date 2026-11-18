@@ -999,6 +999,74 @@ def manage_files(
     }
 
 
+# ── 69号 P0：本体图查询三件套（只读；域=密钥绑定域，不显式传） ─────────────
+
+
+@mcp.tool()
+def list_ontology_libraries() -> dict:
+    """列出本钥匙绑定知识域内的全部本体库——查领域模型（本体/对象/关系）的入口。
+
+    本体库 = 域级类型资产：本体（类型，如核心网域的 网元/业务/场景）+ 语义对象
+    （实例，如 AMF、SMF、网络切片）+ 语义关系（类型化有向边，如 承载/作用于）。
+    返回 domain + libraries[]（id/name/description/ontology_count/object_count/
+    relation_count）；后续 query_ontology_graph 的 library_id 从这里取。
+
+    示例问法：「核心网域有哪些本体库？」
+    """
+    ident = _identity()
+    try:
+        return backend.list_ontology_libraries(ident.username, ident.key_id)
+    except backend.ToolBackendError as exc:
+        raise _upstream_tool_error(exc) from None
+
+
+@mcp.tool()
+def query_ontology_graph(
+    library_id: str,
+    ontology_names: list[str] | None = None,
+    limit: int | None = None,
+) -> dict:
+    """拉取本体库的实例图：nodes（语义对象）/edges（语义关系，带 relation_name）/
+    ontologies（id/name 对应表，复述节点类型用）/total_objects/truncated。
+
+    ontology_names 按本体名过滤子图（名称比 id 友好；未知名 422 附合法名清单）。
+    limit 1..2000 默认 2000——超大库返回 truncated=true 时，用 ontology_names
+    收窄到关心的本体再看。
+
+    示例问法：「画『核心网知识本体』的实例图，只要网元和业务」
+        → 先 list_ontology_libraries 拿 library_id，
+          再 query_ontology_graph(library_id=…, ontology_names=["网元", "业务"])
+    """
+    ident = _identity()
+    try:
+        return backend.query_ontology_graph(
+            ident.username, ident.key_id, str(library_id or "").strip(),
+            ontology_names=ontology_names, limit=limit,
+        )
+    except backend.ToolBackendError as exc:
+        raise _upstream_tool_error(exc) from None
+
+
+@mcp.tool()
+def get_semantic_neighbors(object_id: str) -> dict:
+    """看一个语义对象本身 + 它的一度邻接：object 卡（名称/本体/属性/来源文档）
+    与 outgoing[]/incoming[]（边带 relation_name + 对端对象摘要）。
+
+    object_id 来自 query_ontology_graph 的 nodes[].id。出边 = 它指向谁
+    （如 AMF --承载--> SMF），入边 = 谁指向它（如 网络切片 --作用于--> AMF）。
+
+    示例问法：「AMF 周边关联了什么？」
+        → get_semantic_neighbors(object_id=<实例图里 AMF 节点的 id>)
+    """
+    ident = _identity()
+    try:
+        return backend.get_semantic_neighbors(
+            ident.username, ident.key_id, str(object_id or "").strip(),
+        )
+    except backend.ToolBackendError as exc:
+        raise _upstream_tool_error(exc) from None
+
+
 def _check_directory_shape(directory: str) -> None:
     """58号D2：upload 的 directory 形状前置检查（存在性由 begin-upload 查库校验）。"""
     if not directory:

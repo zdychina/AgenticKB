@@ -21,6 +21,9 @@ const servingApi = vi.hoisted(() => ({
 
 vi.mock('@/api/kb', () => ({ useKbApi: () => kbApi }))
 vi.mock('@/api/operator', () => ({ useOperatorApi: () => operatorApi }))
+vi.mock('@/api/ontology', () => ({
+  useOntologyApi: () => ({ searchObjects: vi.fn().mockResolvedValue({ truncated: false, hits: [] }) }),
+}))
 vi.mock('@/api/serving', () => ({ useServingApi: () => servingApi }))
 vi.mock('@/api/proxyClient', () => ({ apiErrorDetail: async () => '网络错误' }))
 vi.mock('@/stores/domain', () => ({

@@ -18,6 +18,9 @@ let routeQuery: Record<string, unknown> = {}
 
 vi.mock('@/api/serving', () => ({ useServingApi: () => servingApi }))
 vi.mock('@/api/operator', () => ({ useOperatorApi: () => operatorApi }))
+vi.mock('@/api/ontology', () => ({
+  useOntologyApi: () => ({ searchObjects: vi.fn().mockResolvedValue({ truncated: false, hits: [] }) }),
+}))
 vi.mock('@/api/proxyClient', () => ({
   apiErrorDetail: async () => '错误',
   createProxyClient: () => ({ get: vi.fn(), post: vi.fn() }),

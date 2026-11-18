@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from knowledge_mining.mining.kb.auth import current_user
 from knowledge_mining.mining.kb.deps import (
@@ -140,6 +140,15 @@ class InstantiateIn(BaseModel):
     source: str = "extract"
     objects: list[InstantiateObjectIn]
     relations: list[InstantiateRelationIn] = []
+    # 69号溯源：仅 source='extract' 通道可带（text/file 源无文档可溯）；
+    # 不校验文档存在性——溯源是记录不是约束（读取侧对已删文档降级兜底）。
+    source_document_id: str | None = None
+
+    @model_validator(mode="after")
+    def _source_document_only_for_extract(self) -> "InstantiateIn":
+        if self.source_document_id is not None and self.source != "extract":
+            raise ValueError("source_document_id 仅允许 source='extract' 通道携带")
+        return self
 
 
 # ----------------------------------------------------------------- helpers
@@ -229,6 +238,24 @@ async def list_libraries(
 ) -> list[dict]:
     try:
         return await svc.list_libraries(domain=domain, q=q, user=user)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.get("/search/objects")
+async def search_objects(
+    domain: str = Query(..., min_length=1),
+    q: str = Query(..., min_length=1, description="对象名关键字（ILIKE）"),
+    limit: int = Query(20, ge=1, le=20),
+    user: dict = Depends(current_user),
+    svc: OntologyService = Depends(get_ontology_service),
+) -> dict:
+    """域级对象搜索（69号 §4.1）：跨库按对象名匹配，检索面板卡组数据源。
+
+    只按对象名匹配（不扫 attributes_json，§1.2）；limit 默认/上限 20，
+    超出 truncated=true（前端提示"还有更多"）。"""
+    try:
+        return await svc.search_objects(domain=domain, q=q, limit=limit, user=user)
     except Exception as exc:
         raise _map_error(exc) from exc
 
@@ -644,7 +671,7 @@ async def instantiate_batch(
             library_id, ontology_id=body.ontology_id, source=body.source,
             objects=[item.model_dump() for item in body.objects],
             relations=[item.model_dump() for item in body.relations],
-            user=user,
+            user=user, source_document_id=body.source_document_id,
         )
     except Exception as exc:
         raise _map_error(exc) from exc

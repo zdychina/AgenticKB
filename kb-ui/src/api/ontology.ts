@@ -26,6 +26,7 @@ import type {
   OntologyObjectsPage,
   OntologyRelation,
   LibraryGraph,
+  OntologyObjectSearchResult,
   SemanticRelationRow,
   SemanticRelationsPage,
 } from '@/types/ontology'
@@ -349,6 +350,16 @@ export function useOntologyApi() {
     return data as LibraryGraph
   }
 
+  /** 域级对象名搜索（69号 §4.1）：跨库按名匹配，检索面板卡组数据源。 */
+  async function searchObjects(
+    domain: string, q: string, limit = 20,
+  ): Promise<OntologyObjectSearchResult> {
+    const { data } = await client.get('/api/kb/ontology/search/objects', {
+      params: { domain, q, limit },
+    })
+    return data as OntologyObjectSearchResult
+  }
+
   return {
     listLibraries,
     getLibrary,
@@ -383,5 +394,6 @@ export function useOntologyApi() {
     deleteSemanticRelation,
     getLibrarySchema,
     getLibraryGraph,
+    searchObjects,
   }
 }

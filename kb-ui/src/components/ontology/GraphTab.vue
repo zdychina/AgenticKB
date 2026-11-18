@@ -53,6 +53,17 @@
         <template v-if="drawerDetail">
           <h3 class="graph-tab__drawer-title">{{ drawerDetail.name }}</h3>
           <el-tag size="small" effect="plain">{{ drawerDetail.ontology_name }}</el-tag>
+          <!-- 69号溯源：extract 对象带来源文档（与对象 Tab 来源列同口径） -->
+          <p v-if="drawerDetail.source === 'extract' && drawerDetail.source_document_id" class="graph-tab__provenance">
+            AI 抽取 ·
+            <button
+              v-if="drawerDetail.source_document_name && drawerDetail.source_kb_id"
+              class="kb-link graph-tab__doc-link"
+              type="button"
+              @click="openSourceDocument"
+            >{{ drawerDetail.source_document_name }}</button>
+            <span v-else>来源文档已不可访问</span>
+          </p>
           <table v-if="drawerDetail.attribute_defs.length" class="graph-tab__attrs">
             <tr v-for="def in drawerDetail.attribute_defs" :key="def.id">
               <th>{{ def.name }}</th>
@@ -82,6 +93,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Graph } from '@antv/g6'
 import { Aim, Download, Refresh, Search } from '@element-plus/icons-vue'
@@ -102,7 +114,9 @@ const props = withDefaults(defineProps<{
   ontologies: Ontology[]
   /** Tab 是否激活：隐藏时画布尺寸为 0，渲染/自适应须推迟到激活后。 */
   active?: boolean
-}>(), { active: true })
+  /** 69号 §4.3：外链聚焦对象 id（检索面板卡组跳入）；图渲染后一次性消费。 */
+  focus?: string
+}>(), { active: true, focus: '' })
 
 const api = useOntologyApi()
 
@@ -168,6 +182,7 @@ async function load() {
     loadedOnce = true
     await nextTick()  // 空态切换后容器可能刚挂载/卸载，等 DOM 稳定再画
     await renderGraph()
+    await maybeConsumeFocus()  // 69号：外链聚焦等图渲染完成后再消费
   } catch (error) {
     ElMessage.error(`加载图谱失败：${await apiErrorDetail(error)}`)
   } finally {
@@ -193,8 +208,8 @@ function ensureGraph(): Graph | null {
       style: {
         size: 34,
         fill: (d: NodeData): string => String(d.data?.color ?? PALETTE[0]),
-        stroke: '#fff',
-        lineWidth: 2,
+        stroke: (d: NodeData): string => (d.data?.focus ? '#0891b2' : '#fff'),
+        lineWidth: (d: NodeData): number => (d.data?.focus ? 3.5 : 2),
         labelText: (d: NodeData): string =>
           d.data?.dim ? '' : String(d.data?.name ?? d.id ?? ''),
         labelPlacement: 'bottom',
@@ -221,7 +236,7 @@ function ensureGraph(): Graph | null {
   return graph
 }
 
-/** 过滤（本体开关）+ 高亮（关键字）→ G6 数据。纯映射，不碰实例。 */
+/** 过滤（本体开关）+ 高亮（关键字/外链聚焦）→ G6 数据。纯映射，不碰实例。 */
 function toDisplayData() {
   const g = graphData.value
   if (!g) return { nodes: [], edges: [] }
@@ -235,6 +250,7 @@ function toDisplayData() {
         name: n.name,
         color: colors.get(n.ontology_id) ?? PALETTE[0],
         dim: !!kw && !n.name.includes(kw),
+        focus: n.id === focusId.value,
       },
     }))
   const ids = new Set(nodes.map(n => n.id))
@@ -294,6 +310,18 @@ const drawerVisible = ref(false)
 const drawerLoading = ref(false)
 const drawerDetail = ref<OntologyObjectDetail | null>(null)
 const drawerNeighbors = ref<ObjectNeighbors>({ outgoing: [], incoming: [] })
+const router = useRouter()
+const route = useRoute()
+
+/** 69号溯源：抽屉里跳来源文档预览（文档已删时不渲染按钮，走降级文案）。 */
+function openSourceDocument() {
+  const detail = drawerDetail.value
+  if (!detail?.source_document_id || !detail.source_kb_id) return
+  void router.push({
+    name: 'kb-doc-preview',
+    params: { kbId: detail.source_kb_id, docId: detail.source_document_id },
+  })
+}
 
 async function openDrawer(objectId: string) {
   const seq = ++drawerSeq
@@ -322,6 +350,81 @@ function formatValue(value: unknown): string {
   return String(value)
 }
 
+// ── 外链聚焦（69号 §4.3）：检索面板卡组 → tab=graph&focus=<object_id> ──
+
+const focusId = ref('')
+/** 同一 focus 只消费一次：load 重跑/手动刷新不重复定位。 */
+let consumedFocus = ''
+
+/**
+ * 消费 props.focus：定位 + 描边强调（不开抽屉）。节点被本体过滤排除 →
+ * 自动清过滤再定位；库超限截断未含该节点 → 带该对象的本体重拉一次图。
+ */
+async function maybeConsumeFocus() {
+  const target = props.focus
+  // 首次数据未就绪时搁置（load 收尾会再调一次）
+  if (!target || target === consumedFocus || !loadedOnce || !graphData.value) return
+  consumedFocus = target
+  focusId.value = target
+  try {
+    // 先把描边态画进画布（focusElement 只移视口，不改样式）
+    await renderGraph()
+    const node = graphData.value.nodes.find(n => n.id === target)
+    if (node) {
+      await locateNode(node.ontology_id, target)
+    } else if (graphData.value.truncated) {
+      // 截断兜底：图里没有 ≠ 不存在——取对象所属本体，带过滤重拉再定位
+      try {
+        const detail = await api.getObject(target)
+        const data = await api.getLibraryGraph(props.libraryId, {
+          ontology_ids: [detail.ontology_id],
+        })
+        graphData.value = data
+        await nextTick()
+        await renderGraph()
+        const found = data.nodes.find(n => n.id === target)
+        if (found) {
+          await locateNode(found.ontology_id, target)
+        } else {
+          ElMessage.info('对象存在，但当前图已截断——请用图例缩小范围后重试')
+        }
+      } catch (error) {
+        focusId.value = ''
+        ElMessage.error(`定位失败：${await apiErrorDetail(error)}`)
+      }
+    } else {
+      // 图未截断还没有 → 对象不在本库图里（已删/换库）
+      focusId.value = ''
+      ElMessage.info('未在当前库图谱中找到该对象（可能已被删除）')
+    }
+  } finally {
+    clearFocusQuery()
+  }
+}
+
+async function locateNode(ontologyId: string, target: string) {
+  if (disabled.value.has(ontologyId)) {
+    const next = new Set(disabled.value)
+    next.delete(ontologyId)
+    disabled.value = next
+    await renderGraph()
+  }
+  try {
+    await graph?.focusElement(target)
+  } catch {
+    // 元素不在画布上（理论上不会走到）：描边仍在，静默
+  }
+}
+
+/** 消费后清掉 URL 的 focus 键：刷新不重复跳 tab/定位。 */
+function clearFocusQuery() {
+  const current = route.query.focus
+  if (typeof current !== 'string' || !current) return
+  const query = { ...route.query }
+  delete query.focus
+  void router.replace({ query })
+}
+
 onMounted(load)
 // 父级任何写操作后 refreshAll 会替换 ontologies 引用——借此保持跨 Tab 新鲜
 // （本体/对象页建了东西，切回图谱不用手点刷新）
@@ -332,6 +435,8 @@ watch(() => props.ontologies, () => {
 watch(() => props.active, (now, was) => {
   if (now && !was) void renderGraph()
 })
+// 外链 focus 在页面已打开时再次跳入（同库不同对象）：渲染完成后消费
+watch(() => props.focus, () => { void maybeConsumeFocus() })
 onBeforeUnmount(destroyGraph)
 </script>
 
@@ -406,6 +511,9 @@ onBeforeUnmount(destroyGraph)
 .graph-tab__center-hint { text-align: center; margin-top: 8px; }
 .graph-tab__drawer-title { margin: 0 0 6px; font-size: 16px; }
 .graph-tab__drawer-sub { margin-top: 18px; }
+/* 69号溯源：抽屉来源文档行（本体 tag 下方） */
+.graph-tab__provenance { margin: 8px 0 0; font-size: 12px; color: var(--kb-text-tertiary); }
+.graph-tab__doc-link { font-weight: 500; }
 .graph-tab__attrs { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
 .graph-tab__attrs th { text-align: left; font-weight: 600; width: 40%; padding: 4px 8px 4px 0; color: var(--kb-text-secondary); vertical-align: top; }
 .graph-tab__attrs td { padding: 4px 0; word-break: break-all; }

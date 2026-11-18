@@ -507,10 +507,12 @@ async function seedRows(data: ExtractCandidates): Promise<void> {
   }))
 }
 
-/** ⑤ 提交负载：勾选对象（编辑后名称/属性生效）+ 两端可解析的勾选关系。 */
+/** ⑤ 提交负载：勾选对象（编辑后名称/属性生效）+ 两端可解析的勾选关系。
+ * 69号溯源：kb_document 源必带 source_document_id（text/file 源无文档可溯）。 */
 function buildInstantiatePayload(): {
   ontology_id: string
   source: 'extract'
+  source_document_id?: string
   objects: Array<{ name: string; attributes: Record<string, unknown> }>
   relations: Array<{
     ontology_relation_id: string
@@ -557,6 +559,9 @@ function buildInstantiatePayload(): {
   return {
     ontology_id: ontologyId.value,
     source: 'extract',
+    ...(sourceKind.value === 'kb_document' && documentId.value
+      ? { source_document_id: documentId.value }
+      : {}),
     objects: chosen.map(row => ({
       name: row.name.trim(),
       attributes: Object.fromEntries(

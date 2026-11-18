@@ -85,6 +85,11 @@ export interface OntologyObjectRow {
   updated_at: string
   /** 列表 JOIN 附带。 */
   ontology_name?: string
+  /** 69号抽取溯源：来源文档（LEFT JOIN asset_documents 滤软删——文档已删
+   * 时 name/kb_id 为 null，id 仍在；软删恢复自动回显）。 */
+  source_document_id?: string | null
+  source_document_name?: string | null
+  source_kb_id?: string | null
 }
 
 export interface OntologyObjectDetail extends OntologyObjectRow {
@@ -175,6 +180,28 @@ export interface LibraryGraph {
   /** 过滤前库内对象总数（护栏横幅提示用）。 */
   total_objects: number
   truncated: boolean
+}
+
+// ── 域级对象搜索（69号 §4.1）──
+
+/** 检索面板卡组命中：跨库按对象名匹配（只按名，不扫属性值）。 */
+export interface OntologyObjectSearchHit {
+  object_id: string
+  object_name: string
+  /** manual/import 来源为 null；extract 带抽取来源文档 id。 */
+  source_document_id: string | null
+  /** 截断兜底重拉用（带该本体过滤）。 */
+  ontology_id: string
+  library_id: string
+  library_name: string
+  ontology_name: string
+  /** 一度邻接边数（出+入），卡片「N 关联」。 */
+  degree: number
+}
+
+export interface OntologyObjectSearchResult {
+  truncated: boolean
+  hits: OntologyObjectSearchHit[]
 }
 
 // ── 批量导入（67号 §七 两步式）──

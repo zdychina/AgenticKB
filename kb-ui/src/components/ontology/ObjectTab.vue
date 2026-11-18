@@ -55,9 +55,18 @@
           <el-tag size="small" effect="plain">{{ row.ontology_name || ontologyName(row.ontology_id) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="来源" width="90" align="center">
+      <el-table-column label="来源" width="200">
         <template #default="{ row }">
           <el-tag size="small" :type="sourceTagType(row.source)" effect="plain">{{ sourceLabel(row.source) }}</el-tag>
+          <template v-if="row.source === 'extract' && row.source_document_id">
+            <button
+              v-if="row.source_document_name && row.source_kb_id"
+              class="kb-link obj-tab__doc-link"
+              type="button"
+              @click="openSourceDocument(row)"
+            >{{ row.source_document_name }}</button>
+            <span v-else class="obj-tab__doc-muted">来源文档已不可访问</span>
+          </template>
         </template>
       </el-table-column>
       <el-table-column label="属性摘要" min-width="240" show-overflow-tooltip>
@@ -275,6 +284,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Connection, Edit, MagicStick, Plus, Search, Upload } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
@@ -296,6 +306,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ refresh: [] }>()
+const router = useRouter()
 
 const api = useOntologyApi()
 
@@ -345,6 +356,15 @@ function sourceLabel(source: string): string {
   if (source === 'import') return '导入'
   if (source === 'extract') return 'AI 抽取'
   return '手工'
+}
+
+/** 69号溯源：extract 对象跳来源文档预览（文档已删时按钮不渲染，走降级文案）。 */
+function openSourceDocument(row: OntologyObjectRow) {
+  if (!row.source_document_id || !row.source_kb_id) return
+  void router.push({
+    name: 'kb-doc-preview',
+    params: { kbId: row.source_kb_id, docId: row.source_document_id },
+  })
 }
 
 function sourceTagType(source: string): 'info' | 'success' | 'warning' {
@@ -698,6 +718,9 @@ onMounted(reload)
 .obj-tab__attr-value { width: 100%; display: flex; flex-direction: column; gap: 4px; }
 .obj-tab__attr-hint { color: var(--kb-text-tertiary); font-size: 12px; }
 .obj-tab__hint { color: var(--kb-text-tertiary); font-size: 12px; margin: 6px 0 0; }
+/* 69号溯源：来源列的文档链接/降级文案（跟在来源 tag 后） */
+.obj-tab__doc-link { margin-left: 6px; font-weight: 500; font-size: 12px; }
+.obj-tab__doc-muted { margin-left: 6px; color: var(--kb-text-tertiary); font-size: 12px; }
 .obj-tab__detail { display: flex; flex-direction: column; }
 .obj-tab__detail-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 

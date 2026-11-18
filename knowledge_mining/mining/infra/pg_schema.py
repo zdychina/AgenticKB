@@ -201,6 +201,11 @@ _KB_WORKSPACES_DDL = (
 _ONTOLOGY_LIBRARY_DDL = (
     _REPO_ROOT / "databases" / "kb" / "schemas" / "022_ontology_library.sql"
 )
+# 69号批次0：抽取溯源列 semantic_objects.source_document_id（ALTER 加列+部分
+# 索引，无新表；存量库同文版本化迁移=core/20261118_013_semantic_object_provenance）。
+_SEMANTIC_OBJECT_PROVENANCE_DDL = (
+    _REPO_ROOT / "databases" / "kb" / "schemas" / "023_semantic_object_provenance.sql"
+)
 _WORKFLOW_CONTROL_DDL = _REPO_ROOT / "databases" / "mining_control" / "schemas" / "001_mining_workflow_postgresql.sql"
 
 
@@ -322,6 +327,8 @@ def domain_schema_paths() -> tuple[Path, ...]:
         _KB_WORKSPACES_DDL,
         # 67号本体管理（fork 线）：本体库六表（created_by FK 依赖 kb_users，链尾安全）。
         _ONTOLOGY_LIBRARY_DDL,
+        # 69号批次0：抽取溯源列（ALTER 022 的 semantic_objects，必须排其后）。
+        _SEMANTIC_OBJECT_PROVENANCE_DDL,
     )
 
 

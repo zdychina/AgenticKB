@@ -61,7 +61,12 @@
       </el-tab-pane>
       <el-tab-pane name="graph" lazy>
         <template #label><el-icon class="onto-detail__tab-icon"><Share /></el-icon>图谱</template>
-        <GraphTab :library-id="libraryId" :ontologies="ontologies" :active="activeTab === 'graph'" />
+        <GraphTab
+          :library-id="libraryId"
+          :ontologies="ontologies"
+          :active="activeTab === 'graph'"
+          :focus="focusObjectId"
+        />
       </el-tab-pane>
     </el-tabs>
 
@@ -84,7 +89,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowLeft, Box, Collection, Connection, Delete, Edit, Share } from '@element-plus/icons-vue'
 import { useOntologyApi } from '@/api/ontology'
@@ -102,6 +107,7 @@ const props = defineProps<{ libraryId: string }>()
 
 const api = useOntologyApi()
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const domainStore = useDomainStore()
 
@@ -111,7 +117,17 @@ const canWrite = computed(() =>
 const library = ref<OntologyLibrary | null>(null)
 const ontologies = ref<Ontology[]>([])
 const relations = ref<OntologyRelation[]>([])
-const activeTab = ref('ontologies')
+// 69号 §4.3：setup 一次性读 route.query.tab（同 KbDetailView 先例）——
+// 之后用户手动切 Tab 是纯本地状态，不被残留 query 重置
+const TAB_NAMES = new Set(['ontologies', 'relations', 'objects', 'graph'])
+const initialTab = typeof route.query.tab === 'string' && TAB_NAMES.has(route.query.tab)
+  ? route.query.tab
+  : 'ontologies'
+const activeTab = ref(initialTab)
+// focus 走 computed（响应式）：页面已开时再跳入同库不同对象也能换目标；
+// GraphTab 消费后清 query，这里随之归空，无副作用
+const focusObjectId = computed(() =>
+  typeof route.query.focus === 'string' && route.query.focus ? route.query.focus : '')
 
 /** Tab 子组件写操作后的统一刷新：库计数 + 本体/关系类型共享数据。 */
 async function refreshAll() {

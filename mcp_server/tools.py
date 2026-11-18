@@ -47,7 +47,8 @@ class ServingToolError(ToolBackendError):
         self.details = details or {}
 
 
-def _post(path: str, payload: dict, *, timeout: float = TOOLS_TIMEOUT) -> dict:
+def _post(path: str, payload: dict, *, timeout: float = TOOLS_TIMEOUT,
+          not_found: str | None = None) -> dict:
     secret = _internal_auth_secret()
     if not secret:
         raise ToolBackendError("服务端未完成内部鉴权配置，请联系管理员。")
@@ -63,7 +64,8 @@ def _post(path: str, payload: dict, *, timeout: float = TOOLS_TIMEOUT) -> dict:
         logger.warning("mcp-tools %s unreachable: %s", path, exc)
         raise ToolBackendError("知识服务暂不可用，请稍后重试。") from None
     if resp.status_code == 404:
-        raise ToolBackendError("目标知识库或文档不存在（或你对它没有权限）。")
+        raise ToolBackendError(
+            not_found or "目标知识库或文档不存在（或你对它没有权限）。")
     if resp.status_code == 403:
         raise ToolBackendError("当前身份无权执行该操作（需要库的编辑权限）。")
     if resp.status_code == 413:
@@ -277,6 +279,40 @@ def browse_directory(
         "username": username, "key_id": key_id, "kb_id": kb_id,
         "directory": directory, "limit": limit, "offset": offset,
     })
+
+
+# ── 69号 P0：本体图查询（mining 转发，只读三件套；域=密钥绑定域） ─────────
+
+
+def list_ontology_libraries(username: str, key_id: str) -> dict:
+    """钥匙域内的本体库清单（id/名称/描述/本体数/对象数/关系数）。"""
+    return _post("/api/kb/mcp-tools/ontology/list-libraries", {
+        "username": username, "key_id": key_id,
+    })
+
+
+def query_ontology_graph(
+    username: str, key_id: str, library_id: str,
+    ontology_names: list[str] | None = None,
+    limit: int | None = None,
+) -> dict:
+    """库实例图载荷 + ontologies 摘要（ontology_names 名称过滤，未知名 422）。"""
+    payload: dict = {
+        "username": username, "key_id": key_id, "library_id": library_id,
+    }
+    if ontology_names:
+        payload["ontology_names"] = ontology_names
+    if limit is not None:
+        payload["limit"] = limit
+    return _post("/api/kb/mcp-tools/ontology/library-graph", payload,
+                 not_found="目标本体库不存在（或不在本钥匙绑定的域内）。")
+
+
+def get_semantic_neighbors(username: str, key_id: str, object_id: str) -> dict:
+    """对象卡（名称/本体/属性/溯源）+ 一度邻接 outgoing[]/incoming[]。"""
+    return _post("/api/kb/mcp-tools/ontology/object-neighbors", {
+        "username": username, "key_id": key_id, "object_id": object_id,
+    }, not_found="目标语义对象不存在（或不在本钥匙绑定的域内）。")
 
 
 # 注：批次8 R8 起 get_document 切 serving document_ref 通道（见上方 get_document）。

@@ -42,6 +42,7 @@ from knowledge_mining.mining.kb.routes.folders import router as kb_folders_route
 from knowledge_mining.mining.kb.routes.auth import router as kb_auth_router
 from knowledge_mining.mining.kb.routes.mcp_keys import router as kb_mcp_keys_router
 from knowledge_mining.mining.kb.routes.mcp_tools import router as kb_mcp_tools_router
+from knowledge_mining.mining.kb.routes.mcp_ontology import router as kb_mcp_ontology_router
 from knowledge_mining.mining.kb.routes.overview import router as kb_overview_router
 from knowledge_mining.mining.onenet.routes import (
     refs_router as onenet_refs_router,
@@ -321,6 +322,8 @@ def create_app() -> FastAPI:
     app.include_router(kb_auth_router)
     app.include_router(kb_mcp_keys_router)
     app.include_router(kb_mcp_tools_router)
+    # 69号 P0：MCP 本体图查询（静态前缀同 mcp-tools，同样须先于 kb_router）。
+    app.include_router(kb_mcp_ontology_router)
     app.include_router(kb_overview_router)
     # onenet：管理面（/api/onenet/*）+ KB 引用（静态前缀 /api/kb/{kb_id}/onenet，
     # 在 kb_router 之后的 documents/folders 同段注册即可——其路径含动态 kb_id，

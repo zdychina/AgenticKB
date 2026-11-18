@@ -69,3 +69,9 @@ migrations:
     path: core/20261117_012_ontology_library.sql
     mode: online_expand
     checksum: 773aee123a4ac0916c8dddda996c0ecf1c16071262688eea11520baa2d9eb28c
+  # 69号批次0：semantic_objects.source_document_id 抽取溯源列（ALTER 加列，
+  # 不加 FK——purge 对 asset_documents 有物理删除；启动链镜像 023 同文）。
+  - id: core/20261118_013_semantic_object_provenance
+    path: core/20261118_013_semantic_object_provenance.sql
+    mode: online_expand
+    checksum: 7857b3530c9bc3c25e49a61a71b46b27914f622e8ecc8f83d8efa887fa708de7

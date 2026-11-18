@@ -9,8 +9,10 @@ const state = vi.hoisted(() => ({
     deleteSemanticRelation: vi.fn(),
   },
   ui: { confirm: vi.fn(), success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  router: { push: vi.fn() },
 }))
 
+vi.mock('vue-router', () => ({ useRouter: () => state.router }))
 vi.mock('@/api/ontology', () => ({ useOntologyApi: () => state.api }))
 vi.mock('element-plus', () => ({
   ElMessageBox: { confirm: state.ui.confirm },
@@ -46,6 +48,11 @@ interface ObjectTabVm {
   search: () => void
   reload: () => Promise<void>
   remove: (row: { id: string; name: string }) => Promise<void>
+  openSourceDocument: (row: {
+    source_document_id?: string | null
+    source_document_name?: string | null
+    source_kb_id?: string | null
+  }) => void
 }
 
 const ontologies = [
@@ -113,6 +120,43 @@ describe('object tab — 手工实例化动态表单（67号 §5.3）', () => {
     })
     expect(vm.items).toHaveLength(1)
     expect(vm.total).toBe(1)
+  })
+
+  it('jumps to the source document preview for extract objects (69号溯源)', async () => {
+    state.api.listObjects.mockReset().mockResolvedValue({
+      items: [
+        {
+          id: 'obj-amf', library_id: 'lib-1', ontology_id: 'onto-device', ontology_name: '设备',
+          name: 'AMF', attributes_json: null, source: 'extract',
+          created_by: 'u1', created_at: '2026-11-18T08:00:00+00:00',
+          updated_at: '2026-11-18T08:00:00+00:00',
+          source_document_id: 'doc-1', source_document_name: 'AMF开局指导书.md',
+          source_kb_id: 'kb-9',
+        },
+        {
+          id: 'obj-smf', library_id: 'lib-1', ontology_id: 'onto-device', ontology_name: '设备',
+          name: 'SMF', attributes_json: null, source: 'extract',
+          created_by: 'u1', created_at: '2026-11-18T08:01:00+00:00',
+          updated_at: '2026-11-18T08:01:00+00:00',
+          source_document_id: 'doc-gone', source_document_name: null, source_kb_id: null,
+        },
+      ],
+      total: 2,
+    })
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ObjectTabVm
+
+    vm.openSourceDocument(vm.items[0] as never)
+    expect(state.router.push).toHaveBeenCalledWith({
+      name: 'kb-doc-preview',
+      params: { kbId: 'kb-9', docId: 'doc-1' },
+    })
+
+    // 文档已删（kb_id/name 降级 null）：不跳转，列表走「不可访问」纯文案
+    state.router.push.mockClear()
+    vm.openSourceDocument(vm.items[1] as never)
+    expect(state.router.push).not.toHaveBeenCalled()
   })
 
   it('builds the dynamic form from the ontology attribute defs', async () => {

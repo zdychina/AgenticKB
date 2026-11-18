@@ -108,6 +108,14 @@ class OntologyService:
         await self._require_read(user=user, domain=domain)
         return await self._db.list_libraries(domain=domain, q=q)
 
+    async def search_objects(
+        self, *, domain: str, q: str, limit: int, user: dict[str, Any],
+    ) -> dict[str, Any]:
+        """域级对象名搜索（69号 §4.1）：权限同 list_libraries（域成员读）。"""
+        domain = _validate_domain(domain)
+        await self._require_read(user=user, domain=domain)
+        return await self._db.search_objects(domain=domain, q=q, limit=limit)
+
     async def get_library(
         self, library_id: str, *, user: dict[str, Any],
     ) -> dict[str, Any]:
@@ -204,18 +212,22 @@ class OntologyService:
     async def instantiate_batch(
         self, library_id: str, *, ontology_id: str, source: str,
         objects: list[dict[str, Any]], relations: list[dict[str, Any]],
-        user: dict[str, Any],
+        user: dict[str, Any], source_document_id: str | None = None,
     ) -> dict[str, Any]:
         """批量实例化（§6.8）：一批对象 + 一批关系单事务全有或全无。
 
         relations 两端各用 ``{end}_index``（本批新对象下标）或
         ``{end}_object_id``（库内已有对象）二选一引用——「新/已有」任意
         组合；全部校验聚合进一份报告（objects[i]/relations[j] 定位）后
-        整批拒绝。source: manual|extract（import 由导入端点自落库）。"""
+        整批拒绝。source: manual|extract（import 由导入端点自落库）。
+        source_document_id 仅 extract 通道可带（69号溯源，不重验 KB 归属
+        ——越域伪造最多写一个无效引用，读取侧降级兜底）。"""
         await self._get_library_checked(library_id, user, require_write=True)
         await self._get_ontology_in_library(ontology_id, library_id)
         if source not in ("manual", "extract"):
             raise InvalidName("source 仅允许 manual/extract")
+        if source_document_id is not None and source != "extract":
+            raise InvalidName("source_document_id 仅允许 source='extract'")
         detail = await self._db.get_ontology(ontology_id)
         defined = {a["name"] for a in (detail or {}).get("attributes", [])}
 
@@ -414,6 +426,7 @@ class OntologyService:
                     for rid, source_end, target_end in validated
                 ],
                 created_by=user["id"], source=source,
+                source_document_id=source_document_id,
             )
         except UniqueViolation as exc:
             # 并发窗口竞态（校验后到插入前他人先写）——整事务已回滚

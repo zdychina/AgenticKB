@@ -114,6 +114,47 @@ class OntologyDB:
             cur = await conn.execute(sql, params)
             return [dict(r) for r in await cur.fetchall()]
 
+    async def search_objects(
+        self, *, domain: str, q: str, limit: int,
+    ) -> dict[str, Any]:
+        """域级对象名搜索（69号 §4.1）：跨域内全部库按名 ILIKE。
+
+        响应 {truncated, hits}；degree=该对象一度邻接边数（出+入，标量
+        子查询），卡片「N 关联」用。hits 顺序按库建库时间倒序再对象创建
+        序，前端平铺卡组、不真分组。source_document_id 无 FK/不 join
+        文档名：卡片不展示来源，软删降级不适用此处。
+        """
+        like = f"%{_escape_like(q)}%"
+        params: dict[str, Any] = {"domain": domain, "q": like}
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                """SELECT count(*) AS n
+                   FROM semantic_objects so
+                   JOIN ontology_libraries l ON l.id = so.library_id
+                   WHERE l.domain = %(domain)s AND so.name ILIKE %(q)s""",
+                params,
+            )
+            matching = int((await cur.fetchone())["n"])
+            cur = await conn.execute(
+                """SELECT so.id AS object_id, so.name AS object_name,
+                          so.source_document_id, so.ontology_id,
+                          l.id AS library_id, l.name AS library_name,
+                          o.name AS ontology_name,
+                          (SELECT count(*) FROM semantic_relations sr
+                            WHERE sr.source_object_id = so.id)
+                              + (SELECT count(*) FROM semantic_relations sr
+                                  WHERE sr.target_object_id = so.id) AS degree
+                   FROM semantic_objects so
+                   JOIN ontology_libraries l ON l.id = so.library_id
+                   JOIN ontologies o ON o.id = so.ontology_id
+                   WHERE l.domain = %(domain)s AND so.name ILIKE %(q)s
+                   ORDER BY l.created_at DESC, so.created_at, so.id
+                   LIMIT %(limit)s""",
+                {**params, "limit": limit},
+            )
+            rows = [dict(r) for r in await cur.fetchall()]
+            return {"truncated": matching > len(rows), "hits": rows}
+
     async def get_library(self, library_id: str) -> dict[str, Any] | None:
         async with self._pool.connection() as conn:
             cur = await conn.execute(
@@ -553,9 +594,14 @@ class OntologyDB:
         where_sql = " AND ".join(where)
         async with self._pool.connection() as conn:
             cur = await conn.execute(
-                f"""SELECT so.*, o.name AS ontology_name
+                f"""SELECT so.*, o.name AS ontology_name,
+                           d.document_name AS source_document_name,
+                           d.kb_id AS source_kb_id
                     FROM semantic_objects so
                     JOIN ontologies o ON o.id = so.ontology_id
+                    LEFT JOIN asset_documents d
+                           ON d.id = so.source_document_id
+                          AND d.deleted_at IS NULL
                     WHERE {where_sql}
                     ORDER BY so.created_at DESC, so.id
                     LIMIT %(limit)s OFFSET %(offset)s""",
@@ -575,9 +621,14 @@ class OntologyDB:
         """对象详情：本体信息 + 属性定义对齐 + 邻接边计数。"""
         async with self._pool.connection() as conn:
             cur = await conn.execute(
-                """SELECT so.*, o.name AS ontology_name, o.library_id
+                """SELECT so.*, o.name AS ontology_name, o.library_id,
+                          d.document_name AS source_document_name,
+                          d.kb_id AS source_kb_id
                    FROM semantic_objects so
                    JOIN ontologies o ON o.id = so.ontology_id
+                   LEFT JOIN asset_documents d
+                          ON d.id = so.source_document_id
+                         AND d.deleted_at IS NULL
                    WHERE so.id = %s""",
                 (object_id,),
             )
@@ -830,6 +881,7 @@ class OntologyDB:
         objects: list[tuple[str, dict[str, Any]]],
         relations: list[tuple[str, Any, Any]],
         created_by: str, source: str = "extract",
+        source_document_id: str | None = None,
     ) -> dict[str, Any]:
         """批量实例化落库（§6.8）：一批对象 + 一批语义关系单事务全有或全无。
 
@@ -858,11 +910,12 @@ class OntologyDB:
                         """INSERT INTO semantic_objects
                                (id, library_id, ontology_id, name,
                                 attributes_json, source, created_by,
-                                created_at, updated_at)
-                           VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)""",
+                                created_at, updated_at, source_document_id)
+                           VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s)""",
                         [
                             (oid, library_id, ontology_id, name,
-                             _json(attributes), source, created_by, now, now)
+                             _json(attributes), source, created_by, now, now,
+                             source_document_id)
                             for oid, (name, attributes) in zip(object_ids, objects)
                         ],
                     )
