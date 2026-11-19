@@ -305,3 +305,74 @@ export interface InstantiateResult {
   object_ids: string[]
   relation_ids: string[]
 }
+
+// ── 对象↔制品 refs（70号）──
+
+/** refs 降级原因：target_missing=页/行已在 current revision 移除（对象侧）；
+ * object_invisible=制品读者非对象域成员（制品侧反查的防御占位）。 */
+export type ObjectRefDegraded = 'target_missing' | 'object_invisible' | null
+
+/** 对象侧 refs 列表条目（GET /objects/{id}/refs）：跟随 current 现解析，
+ * target_title 为 null 即整体级或降级条目。 */
+export interface ObjectArtifactRef {
+  id: string
+  object_id: string
+  artifact_id: string
+  /** ''=制品整体；wiki=page_key；table=row_key（跨 revision 稳定）。 */
+  target_key: string
+  note: string
+  ref_source: 'manual' | 'auto_compile' | 'auto_import'
+  created_by: string
+  created_at: string
+  artifact_title: string
+  kind: 'table' | 'wiki'
+  artifact_status: 'draft' | 'published' | 'deprecated'
+  artifact_domain_id: string
+  current_revision: number
+  target_title: string | null
+  degraded: ObjectRefDegraded
+}
+
+export interface ObjectArtifactRefsPage {
+  items: ObjectArtifactRef[]
+  truncated: boolean
+}
+
+/** neighbors 对象卡 refs 摘要条目（UI 按用户可见性 / MCP 按钥匙开放子集）。 */
+export interface ObjectRefSummaryEntry {
+  artifact_id: string
+  artifact_title: string
+  kind: 'table' | 'wiki'
+  target_key: string
+  target_title: string | null
+  artifact_status: 'draft' | 'published' | 'deprecated'
+  degraded: ObjectRefDegraded
+}
+
+/** neighbors 响应（70号扩展）：邻接 + refs 摘要（上限 20 + truncated）。 */
+export interface ObjectNeighborsWithRefs extends ObjectNeighbors {
+  artifact_refs: ObjectRefSummaryEntry[]
+  artifact_refs_truncated: boolean
+}
+
+/** 制品侧反查条目（GET /artifact-refs）：非对象域成员 object_name 为 null。 */
+export interface ArtifactObjectRef {
+  id: string
+  object_id: string
+  target_key: string
+  note: string
+  ref_source: 'manual' | 'auto_compile' | 'auto_import'
+  created_by: string
+  created_at: string
+  object_name: string | null
+  ontology_name: string | null
+  /** 跳转库图谱聚焦用（69号 focus 链路）。 */
+  library_id: string
+  library_domain: string
+  degraded: ObjectRefDegraded
+}
+
+export interface ArtifactObjectRefsPage {
+  items: ArtifactObjectRef[]
+  truncated: boolean
+}

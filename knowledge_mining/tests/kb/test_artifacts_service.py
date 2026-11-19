@@ -541,14 +541,26 @@ class FakeArtifactDB:
 
     async def list_rows(
         self, artifact_id: str, revision: int, page: int = 1, size: int = 50,
-        sort_ordinal: bool = True,
+        sort_ordinal: bool = True, q: str | None = None,
     ) -> dict:
         """codex三审 P1-2b 对齐真库：返回前做 alias 旧名→当前名读取投影
-        （当前名键缺失且旧名键存在——仅视图改名，不改存储）。"""
+        （当前名键缺失且旧名键存在——仅视图改名，不改存储）。q=70号行选择器
+        过滤：row_key 或任意列值包含（大小写不敏感；%/_ 字面）。"""
         if revision == 0:
             rows = self.rev0_rows.get(artifact_id, [])
         else:
             rows = self.revision_rows.get(artifact_id, {}).get(revision, [])
+        if q:
+            needle = q.lower()
+
+            def _hit(row: dict) -> bool:
+                if needle in str(row.get("row_key", "")).lower():
+                    return True
+                text = " ".join(
+                    str(v) for v in (row.get("data") or {}).values())
+                return needle in text.lower()
+
+            rows = [r for r in rows if _hit(r)]
         alias_map = {
             str(old): str(col["column_name"])
             for col in self.columns.get(artifact_id, [])

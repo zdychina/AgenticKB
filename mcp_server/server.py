@@ -1049,13 +1049,18 @@ def query_ontology_graph(
 
 @mcp.tool()
 def get_semantic_neighbors(object_id: str) -> dict:
-    """看一个语义对象本身 + 它的一度邻接：object 卡（名称/本体/属性/来源文档）
-    与 outgoing[]/incoming[]（边带 relation_name + 对端对象摘要）。
+    """看一个语义对象本身 + 它的一度邻接：object 卡（名称/本体/属性/来源文档）、
+    outgoing[]/incoming[]（边带 relation_name + 对端对象摘要），以及
+    artifact_refs[]（它被哪些知识制品讲到——表格行/wiki 页/制品整体，
+    上限 20，artifact_refs_truncated=true 表示还有更多）。
 
     object_id 来自 query_ontology_graph 的 nodes[].id。出边 = 它指向谁
     （如 AMF --承载--> SMF），入边 = 谁指向它（如 网络切片 --作用于--> AMF）。
+    artifact_refs 只含本钥匙显式开放的制品（artifact_id/title/目标页行/状态）；
+    degraded="target_missing" 表示目标页/行已在最新版本移除（target_title 为
+    null）。要看制品内容用既有的 wiki/表格查询工具族。
 
-    示例问法：「AMF 周边关联了什么？」
+    示例问法：「AMF 周边关联了什么？在哪些制品里被讲到？」
         → get_semantic_neighbors(object_id=<实例图里 AMF 节点的 id>)
     """
     ident = _identity()

@@ -206,6 +206,12 @@ _ONTOLOGY_LIBRARY_DDL = (
 _SEMANTIC_OBJECT_PROVENANCE_DDL = (
     _REPO_ROOT / "databases" / "kb" / "schemas" / "023_semantic_object_provenance.sql"
 )
+# 70号：对象↔制品 refs 软引用表（object_id 族内 CASCADE 依赖 022 的
+# semantic_objects、created_by 依赖 kb_users，挂链尾安全；存量库同文版本化
+# 迁移=core/20261119_014_semantic_object_artifact_refs）。
+_SEMANTIC_OBJECT_ARTIFACT_REFS_DDL = (
+    _REPO_ROOT / "databases" / "kb" / "schemas" / "024_semantic_object_artifact_refs.sql"
+)
 _WORKFLOW_CONTROL_DDL = _REPO_ROOT / "databases" / "mining_control" / "schemas" / "001_mining_workflow_postgresql.sql"
 
 
@@ -329,6 +335,8 @@ def domain_schema_paths() -> tuple[Path, ...]:
         _ONTOLOGY_LIBRARY_DDL,
         # 69号批次0：抽取溯源列（ALTER 022 的 semantic_objects，必须排其后）。
         _SEMANTIC_OBJECT_PROVENANCE_DDL,
+        # 70号：refs 软引用表（object_id FK 依赖 022 的 semantic_objects，链尾）。
+        _SEMANTIC_OBJECT_ARTIFACT_REFS_DDL,
     )
 
 

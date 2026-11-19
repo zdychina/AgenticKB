@@ -85,9 +85,23 @@
             :can-write="false"
             @jump="openDrawer"
           />
+          <!-- 70号对象卡：被 N 个制品引用（N=可见数；点击开只读引用列表） -->
+          <p class="graph-tab__refs-line" data-test="graph-refs-count">
+            被 {{ drawerRefsSummary }} 个制品引用
+            <el-button link type="primary" data-test="open-graph-refs" @click="openDrawerRefs">查看</el-button>
+          </p>
         </template>
       </div>
     </el-drawer>
+
+    <!-- 制品引用（70号）：图谱读面只读（canWrite=false，无新建/删除） -->
+    <ObjectRefsDialog
+      v-model="refsDialogVisible"
+      :object-id="drawerDetail?.id || ''"
+      :object-name="drawerDetail?.name || ''"
+      :library-id="libraryId"
+      :can-write="false"
+    />
   </div>
 </template>
 
@@ -102,8 +116,9 @@ import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
 import NeighborList from '@/components/ontology/NeighborList.vue'
+import ObjectRefsDialog from '@/components/ontology/ObjectRefsDialog.vue'
 import type {
-  GraphEdge, GraphNode, LibraryGraph, ObjectNeighbors, Ontology, OntologyObjectDetail,
+  GraphEdge, GraphNode, LibraryGraph, ObjectNeighborsWithRefs, Ontology, OntologyObjectDetail,
 } from '@/types/ontology'
 
 // Boolean prop 缺省会被 Vue cast 成 false（而非 undefined）：显式 default true，
@@ -309,9 +324,24 @@ async function exportPng() {
 const drawerVisible = ref(false)
 const drawerLoading = ref(false)
 const drawerDetail = ref<OntologyObjectDetail | null>(null)
-const drawerNeighbors = ref<ObjectNeighbors>({ outgoing: [], incoming: [] })
+const drawerNeighbors = ref<ObjectNeighborsWithRefs>({
+  outgoing: [], incoming: [], artifact_refs: [], artifact_refs_truncated: false,
+})
 const router = useRouter()
 const route = useRoute()
+
+// ── 70号对象卡：可见引用数 + 只读引用对话框（图谱是读面，canWrite 恒 false）──
+const refsDialogVisible = ref(false)
+
+const drawerRefsSummary = computed(() => {
+  const list = drawerNeighbors.value.artifact_refs
+  const count = Array.isArray(list) ? list.length : 0
+  return drawerNeighbors.value.artifact_refs_truncated ? `${count}+` : String(count)
+})
+
+function openDrawerRefs() {
+  if (drawerDetail.value) refsDialogVisible.value = true
+}
 
 /** 69号溯源：抽屉里跳来源文档预览（文档已删时不渲染按钮，走降级文案）。 */
 function openSourceDocument() {
@@ -514,6 +544,8 @@ onBeforeUnmount(destroyGraph)
 /* 69号溯源：抽屉来源文档行（本体 tag 下方） */
 .graph-tab__provenance { margin: 8px 0 0; font-size: 12px; color: var(--kb-text-tertiary); }
 .graph-tab__doc-link { font-weight: 500; }
+/* 70号对象卡：被 N 个制品引用行（入边列表下方） */
+.graph-tab__refs-line { margin: 14px 0 0; font-size: 13px; color: var(--kb-text-secondary); }
 .graph-tab__attrs { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
 .graph-tab__attrs th { text-align: left; font-weight: 600; width: 40%; padding: 4px 8px 4px 0; color: var(--kb-text-secondary); vertical-align: top; }
 .graph-tab__attrs td { padding: 4px 0; word-break: break-all; }

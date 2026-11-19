@@ -50,6 +50,13 @@
 
     <!-- 编辑行：按列类型分派控件（008 UI：长文本多行/数字/日期/布尔三态） -->
     <el-dialog v-model="editVisible" title="编辑行" width="600px">
+      <!-- 70号：本行「相关对象」（target_key=row_key，跨 revision 稳定） -->
+      <ArtifactRefsChips
+        v-if="editForm.rowKey"
+        class="rows-panel__refs"
+        :artifact-id="artifactId"
+        :target-key="editForm.rowKey"
+      />
       <el-form label-width="130px">
         <el-form-item label="行键">
           <span class="rows-panel__rowkey">{{ decodeRowKey(editForm.rowKey, pkColumns.length > 0) }}</span>
@@ -176,6 +183,7 @@ import { useArtifactsApi } from '@/api/artifacts'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
 import CellEditor from '@/components/artifacts/ArtifactCellEditor.vue'
+import ArtifactRefsChips from '@/components/artifacts/ArtifactRefsChips.vue'
 import ArtifactTableView from '@/components/artifacts/ArtifactTableView.vue'
 import { decodeRowKey } from '@/utils/rowKey'
 import type { ArtifactColumn, ArtifactRow } from '@/types/artifacts'
@@ -521,6 +529,8 @@ defineExpose({
 .rows-panel__table { min-width: 0; }
 .rows-panel__conflict-tag { margin-top: 10px; }
 .rows-panel__rowkey { font-family: var(--el-font-family, inherit); cursor: default; }
+/* 70号：行详情「相关对象」区（行键下方、表单上方） */
+.rows-panel__refs { margin-bottom: 12px; }
 .rows-panel__pager { justify-content: flex-end; }
 .rows-panel__conditions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .rows-panel__cond { display: flex; gap: 6px; align-items: center; width: 100%; }

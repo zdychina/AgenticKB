@@ -82,6 +82,15 @@
 
     <p v-if="artifact?.description" class="artifact-detail__desc">{{ artifact.description }}</p>
 
+    <!-- 70号评审⑥：制品整体级引用（target_key=''）——不补此位则整体级引用建得着看不见 -->
+    <ArtifactRefsChips
+      v-if="artifact"
+      class="artifact-detail__refs"
+      :artifact-id="artifactId"
+      target-key=""
+      label="相关对象（制品级）："
+    />
+
     <!-- Not found / no access -->
     <div v-if="!loading && loadError" class="artifact-detail__missing">
       <EmptyState :text="loadError" />
@@ -323,6 +332,7 @@ import ArtifactImportWizard from '@/components/artifacts/ArtifactImportWizard.vu
 import ArtifactUsagePanel from '@/components/artifacts/ArtifactUsagePanel.vue'
 import ArtifactTableView from '@/components/artifacts/ArtifactTableView.vue'
 import ArtifactSchemaPanel from '@/components/artifacts/ArtifactSchemaPanel.vue'
+import ArtifactRefsChips from '@/components/artifacts/ArtifactRefsChips.vue'
 import ArtifactRowsPanel from '@/components/artifacts/ArtifactRowsPanel.vue'
 import ArtifactMembersPanel from '@/components/artifacts/ArtifactMembersPanel.vue'
 import ArtifactVersionsPanel from '@/components/artifacts/ArtifactVersionsPanel.vue'
@@ -713,6 +723,8 @@ defineExpose({ reloadAll })
 }
 .artifact-detail__badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
 .artifact-detail__desc { margin: 8px 0 12px; color: var(--kb-text-tertiary); font-size: 13px; }
+/* 70号制品级「相关对象」chips：描述行下方、页签上方 */
+.artifact-detail__refs { margin: 0 0 10px; }
 .artifact-detail__missing { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .artifact-detail__meta-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 /* 说明卡满宽（2026-11-13 用户反馈「框宽与页面不适配」——不再 720px 截断，

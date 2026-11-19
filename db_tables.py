@@ -109,6 +109,9 @@ EXPORT_TABLES = [
     "ontology_relations",
     "semantic_objects",
     "semantic_relations",
+    # 对象↔制品 refs 软引用表（fork 70号批次0，迁移 014，024 启动链同文）：
+    # object_id FK 依赖 semantic_objects，排其后；created_by 引用的 kb_users 已在前段
+    "semantic_object_artifact_refs",
 ]
 
 # 兼容尚未完成 52 号 bootstrap 的测试/旧库；生产收敛库验证要求这些表存在。

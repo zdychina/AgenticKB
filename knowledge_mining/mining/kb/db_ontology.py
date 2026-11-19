@@ -1076,6 +1076,257 @@ class OntologyDB:
             incoming = [dict(r) for r in await cur.fetchall()]
             return {"outgoing": outgoing, "incoming": incoming}
 
+    # --------------------------------------------- 对象↔制品 refs（70号）
+
+    _REF_SELECT = """SELECT r.id, r.object_id, r.artifact_id, r.target_key,
+                             r.note, r.ref_source, r.created_by, r.created_at,
+                             a.title AS artifact_title, a.kind,
+                             a.status AS artifact_status,
+                             a.domain_id AS artifact_domain_id,
+                             a.current_revision
+                      FROM semantic_object_artifact_refs r
+                      JOIN kb_artifacts a ON a.artifact_id = r.artifact_id"""
+
+    async def create_object_ref(
+        self, *, object_id: str, artifact_id: str, target_key: str,
+        note: str, created_by: str,
+    ) -> dict[str, Any]:
+        """落一条 manual 引用（校验全在 service 层；UniqueViolation 原样上抛
+        由 service 翻 Duplicate）。id 形如 sor_<16hex>（DDL 口径）。"""
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                """INSERT INTO semantic_object_artifact_refs
+                       (id, object_id, artifact_id, target_key, note,
+                        ref_source, created_by, created_at)
+                   VALUES (%(id)s, %(object_id)s, %(artifact_id)s,
+                           %(target_key)s, %(note)s, 'manual',
+                           %(created_by)s, %(now)s)
+                   RETURNING *""",
+                {"id": f"sor_{_new_id()[:16]}", "object_id": object_id,
+                 "artifact_id": artifact_id, "target_key": target_key,
+                 "note": note, "created_by": created_by, "now": _utcnow()},
+            )
+            return dict(await cur.fetchone())
+
+    async def get_object_ref(self, ref_id: str) -> dict[str, Any] | None:
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT * FROM semantic_object_artifact_refs WHERE id = %s",
+                (ref_id,),
+            )
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def delete_object_ref(self, ref_id: str) -> bool:
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM semantic_object_artifact_refs WHERE id = %s",
+                (ref_id,),
+            )
+            return cur.rowcount > 0
+
+    async def get_ref_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        """kb_artifacts 单行摘要（refs 侧校验/联查用；不存在返回 None）。"""
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                """SELECT artifact_id, domain_id, kind, title, status,
+                          visibility, owner_user_id, current_revision
+                   FROM kb_artifacts WHERE artifact_id = %s""",
+                (artifact_id,),
+            )
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def list_object_refs(
+        self, object_id: str, *, user_id: str, privileged: bool, limit: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """对象的 refs 列表（当前用户制品可见性过滤在 SQL 内，§3.3 第 1 行）。
+
+        JOIN kb_artifacts（非 LEFT）：制品删除的残留引用行防御性不出现。
+        privileged=site/domain admin 时不过滤（域管理员对同域制品全通）。
+        """
+        vis = ""
+        params: dict[str, Any] = {
+            "object_id": object_id, "limit": limit,
+        }
+        if not privileged:
+            vis = (" AND (a.visibility = 'public' OR a.owner_user_id = %(uid)s"
+                   " OR EXISTS (SELECT 1 FROM kb_artifact_members m"
+                   "            WHERE m.artifact_id = a.artifact_id"
+                   "              AND m.user_id = %(uid)s))")
+            params["uid"] = user_id
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                f"""{self._REF_SELECT}
+                    WHERE r.object_id = %(object_id)s{vis}
+                    ORDER BY r.created_at, r.id
+                    LIMIT %(limit)s""",
+                params,
+            )
+            items = [dict(r) for r in await cur.fetchall()]
+            cur = await conn.execute(
+                f"""SELECT count(*) AS n
+                    FROM semantic_object_artifact_refs r
+                    JOIN kb_artifacts a ON a.artifact_id = r.artifact_id
+                    WHERE r.object_id = %(object_id)s{vis}""",
+                {k: v for k, v in params.items() if k != "limit"},
+            )
+            total = int((await cur.fetchone())["n"])
+            return items, total
+
+    async def list_object_refs_for_key(
+        self, object_id: str, *, key_id: str, limit: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """MCP 摘要变体：按钥匙 open_artifacts 开放子集过滤（§3.3 第 3 行，
+        008 口径——开放行 ⊆ 钥匙主人可见面，授予即代表主人显式勾选）。"""
+        params: dict[str, Any] = {
+            "object_id": object_id, "key_id": key_id, "limit": limit,
+        }
+        where = (" WHERE r.object_id = %(object_id)s"
+                 " AND EXISTS (SELECT 1 FROM mcp_key_open_artifacts oa"
+                 "             WHERE oa.key_id = %(key_id)s"
+                 "               AND oa.artifact_id = r.artifact_id)")
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                f"""{self._REF_SELECT}{where}
+                    ORDER BY r.created_at, r.id
+                    LIMIT %(limit)s""",
+                params,
+            )
+            items = [dict(r) for r in await cur.fetchall()]
+            cur = await conn.execute(
+                f"""SELECT count(*) AS n
+                    FROM semantic_object_artifact_refs r
+                    JOIN kb_artifacts a ON a.artifact_id = r.artifact_id{where}""",
+                {k: v for k, v in params.items() if k != "limit"},
+            )
+            total = int((await cur.fetchone())["n"])
+            return items, total
+
+    async def list_artifact_refs(
+        self, artifact_id: str, *, target_key: str | None, limit: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """制品侧反查（§四 artifact-refs 端点）：该制品（或指定页/行/整体）
+        被哪些对象引用；带对象名/本体名/库域（service 层按域成员身份降级）。"""
+        params: dict[str, Any] = {
+            "artifact_id": artifact_id, "limit": limit,
+        }
+        where = " WHERE r.artifact_id = %(artifact_id)s"
+        if target_key is not None:
+            where += " AND r.target_key = %(target_key)s"
+            params["target_key"] = target_key
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                f"""SELECT r.id, r.object_id, r.target_key, r.note,
+                           r.ref_source, r.created_by, r.created_at,
+                           so.name AS object_name, o.name AS ontology_name,
+                           so.library_id, l.domain AS library_domain
+                    FROM semantic_object_artifact_refs r
+                    JOIN semantic_objects so ON so.id = r.object_id
+                    JOIN ontologies o ON o.id = so.ontology_id
+                    JOIN ontology_libraries l ON l.id = so.library_id{where}
+                    ORDER BY r.created_at, r.id
+                    LIMIT %(limit)s""",
+                params,
+            )
+            items = [dict(r) for r in await cur.fetchall()]
+            cur = await conn.execute(
+                f"""SELECT count(*) AS n
+                    FROM semantic_object_artifact_refs r{where}""",
+                {k: v for k, v in params.items() if k != "limit"},
+            )
+            total = int((await cur.fetchone())["n"])
+            return items, total
+
+    async def artifact_target_exists(
+        self, artifact_id: str, *, revision: int, kind: str, target_key: str,
+    ) -> bool:
+        """target_key 是否存在于制品 current revision（wiki=page_key /
+        table=row_key）。"""
+        table, col = (
+            ("kb_wiki_pages", "page_key") if kind == "wiki"
+            else ("kb_table_rows", "row_key")
+        )
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                f"SELECT 1 FROM {table} WHERE artifact_id = %s"
+                f" AND revision = %s AND {col} = %s",
+                (artifact_id, revision, target_key),
+            )
+            return await cur.fetchone() is not None
+
+    async def sample_artifact_target_keys(
+        self, artifact_id: str, *, revision: int, kind: str, limit: int = 20,
+    ) -> list[str]:
+        """422 报告附的合法 key 样例（前 N 个，ordinal 序）。"""
+        table, col = (
+            ("kb_wiki_pages", "page_key") if kind == "wiki"
+            else ("kb_table_rows", "row_key")
+        )
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                f"SELECT {col} AS k FROM {table} WHERE artifact_id = %s"
+                f" AND revision = %s ORDER BY ordinal, {col} LIMIT %s",
+                (artifact_id, revision, limit),
+            )
+            return [str(r["k"]) for r in await cur.fetchall()]
+
+    async def resolve_ref_targets(
+        self, refs: list[dict[str, Any]],
+    ) -> dict[tuple[str, str], str]:
+        """批量解析页/行级目标（跟随 current，§五）：wiki→页 title、
+        table→行 row_key（业务主键即展示名）。只返回命中的组合；
+        缺席=目标已不存在（service 层标 degraded）。整体级（target_key=''）
+        不参与。"""
+        found: dict[tuple[str, str], str] = {}
+        wiki = [r for r in refs if r["target_key"] and r["kind"] == "wiki"]
+        table = [r for r in refs if r["target_key"] and r["kind"] == "table"]
+        async with self._pool.connection() as conn:
+            if wiki:
+                cur = await conn.execute(
+                    """SELECT p.artifact_id, p.page_key, p.title
+                       FROM kb_wiki_pages p
+                       JOIN kb_artifacts a
+                            ON a.artifact_id = p.artifact_id
+                           AND a.current_revision = p.revision
+                       WHERE p.artifact_id = ANY(%(arts)s)
+                         AND p.page_key = ANY(%(keys)s)""",
+                    {"arts": sorted({r["artifact_id"] for r in wiki}),
+                     "keys": sorted({r["target_key"] for r in wiki})},
+                )
+                for row in await cur.fetchall():
+                    found[(row["artifact_id"], row["page_key"])] = str(row["title"])
+            if table:
+                cur = await conn.execute(
+                    """SELECT t.artifact_id, t.row_key
+                       FROM kb_table_rows t
+                       JOIN kb_artifacts a
+                            ON a.artifact_id = t.artifact_id
+                           AND a.current_revision = t.revision
+                       WHERE t.artifact_id = ANY(%(arts)s)
+                         AND t.row_key = ANY(%(keys)s)""",
+                    {"arts": sorted({r["artifact_id"] for r in table}),
+                     "keys": sorted({r["target_key"] for r in table})},
+                )
+                for row in await cur.fetchall():
+                    found[(row["artifact_id"], row["row_key"])] = str(row["row_key"])
+        return found
+
+    async def user_artifact_member_ids(
+        self, user_id: str, artifact_ids: list[str],
+    ) -> set[str]:
+        """批量制品成员关系查（artifact-refs 反查的制品读门禁用）。"""
+        if not artifact_ids:
+            return set()
+        async with self._pool.connection() as conn:
+            cur = await conn.execute(
+                "SELECT artifact_id FROM kb_artifact_members"
+                " WHERE user_id = %s AND artifact_id = ANY(%s)",
+                (user_id, sorted(set(artifact_ids))),
+            )
+            return {str(r["artifact_id"]) for r in await cur.fetchall()}
+
+
 
 # ------------------------------------------------------------- 内部 helper
 

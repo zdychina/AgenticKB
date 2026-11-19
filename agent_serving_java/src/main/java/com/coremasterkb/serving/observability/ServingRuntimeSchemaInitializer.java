@@ -43,8 +43,9 @@ public class ServingRuntimeSchemaInitializer implements DomainSchemaEnsurer {
     // 2026-11-18 合并 upstream/master：工作台与本体两条线各自用掉 012（id 含日期+
     // 表名全局唯一，双 012 保留），合并后刷新（与 contract.CURRENT_SCHEMA_CHECKSUM 同值）。
     // 69号批次0：加 013（semantic_objects.source_document_id 溯源列）后刷新。
+    // 70号批次0：加 014（semantic_object_artifact_refs refs 软引用表）后刷新。
     private static final String EXPECTED_SCHEMA_CHECKSUM =
-            "d1ddb3b038deb30f58b2d3f734b4f675be3b16cc2d8c8b0c06aee32cdd48b8d2";
+            "070ffb44b4a41e403ae325f895ded18a90ee43a897eec0767d0e704a4174127e";
     private static final String EXPECTED_SCHEMA_MARKER =
             "schema/" + EXPECTED_SCHEMA_VERSION;
 

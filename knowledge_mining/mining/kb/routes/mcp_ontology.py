@@ -143,7 +143,11 @@ async def mcp_ontology_object_neighbors(
     kbdb: KbDB = Depends(get_kb_db),
     svc: OntologyService = Depends(get_ontology_service),
 ) -> dict[str, Any]:
-    """对象卡（名称/本体/属性/溯源）+ 一度邻接 {outgoing[], incoming[]}。"""
+    """对象卡（名称/本体/属性/溯源）+ 一度邻接 {outgoing[], incoming[]}。
+
+    70号扩展：artifact_refs 摘要（对象被哪些知识制品讲到，上限 20 +
+    artifact_refs_truncated）——按钥匙 open_artifacts 开放子集过滤（008
+    口径，未显式开放的制品不出现）；degraded 条目 target_title=null。"""
     user, key = await _ontology_scope(
         kbdb, str(body.get("username") or ""), str(body.get("key_id") or ""),
     )
@@ -155,6 +159,9 @@ async def mcp_ontology_object_neighbors(
         if library.get("domain") != key["domain"]:
             raise HTTPException(404, "object not found")
         neighbors = await svc.get_object_neighbors(object_id, user=user)
+        refs = await svc.summarize_object_refs(
+            object_id, user=user, key_id=key["id"],
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -171,4 +178,6 @@ async def mcp_ontology_object_neighbors(
         "object": card,
         "outgoing": neighbors.get("outgoing") or [],
         "incoming": neighbors.get("incoming") or [],
+        "artifact_refs": refs["artifact_refs"],
+        "artifact_refs_truncated": refs["artifact_refs_truncated"],
     }

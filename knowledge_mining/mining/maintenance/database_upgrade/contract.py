@@ -18,7 +18,8 @@ CURRENT_SCHEMA_VERSION = "2026.09.user-lifecycle-retrieval-v1"
 # 2026-11-18 合并 upstream/master：工作台与本体两条线各自用掉 012（id 含日期+
 # 表名全局唯一，双 012 保留），合并后刷新。
 # 69号批次0：加 013（semantic_objects.source_document_id 溯源列）后刷新。
-CURRENT_SCHEMA_CHECKSUM = "d1ddb3b038deb30f58b2d3f734b4f675be3b16cc2d8c8b0c06aee32cdd48b8d2"
+# 70号批次0：加 014（semantic_object_artifact_refs refs 软引用表）后刷新。
+CURRENT_SCHEMA_CHECKSUM = "070ffb44b4a41e403ae325f895ded18a90ee43a897eec0767d0e704a4174127e"
 SCHEMA_MARKER_ID = f"schema/{CURRENT_SCHEMA_VERSION}"
 MIGRATION_LEDGER_TABLE = "cmkb_schema_migrations"
 LEGACY_COMPAT_TABLES: tuple[str, ...] = ("mcp_open_kbs", "mcp_access")
@@ -113,6 +114,8 @@ FORMAL_TABLES: frozenset[str] = frozenset({
     "ontology_relations",
     "semantic_objects",
     "semantic_relations",
+    # 对象↔制品 refs 软引用表（fork 70号批次0，迁移 014）：挂对象的跨族软引用
+    "semantic_object_artifact_refs",
 })
 EXPECTED_FORMAL_TABLES = len(FORMAL_TABLES)
 EXPECTED_PHYSICAL_TABLES = EXPECTED_FORMAL_TABLES + 1
@@ -160,6 +163,8 @@ PREVIOUS_RELEASE_TABLES: frozenset[str] = frozenset(
             "ontology_relations",
             "semantic_objects",
             "semantic_relations",
+            # 70号 refs 软引用表（迁移 014）本版新增，一并从上一版基线扣除
+            "semantic_object_artifact_refs",
         }
     )
     | {"serving_query_logs"}
@@ -196,5 +201,5 @@ RETIRED_TABLES: tuple[str, ...] = (
 if len(RETIRED_TABLES) != len(set(RETIRED_TABLES)):  # pragma: no cover - import guard
     raise RuntimeError("RETIRED_TABLES contains duplicates")
 
-if EXPECTED_FORMAL_TABLES != 79:  # pragma: no cover - import guard
-    raise RuntimeError("FORMAL_TABLES must contain exactly 79 names")
+if EXPECTED_FORMAL_TABLES != 80:  # pragma: no cover - import guard
+    raise RuntimeError("FORMAL_TABLES must contain exactly 80 names")

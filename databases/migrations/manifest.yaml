@@ -75,3 +75,9 @@ migrations:
     path: core/20261118_013_semantic_object_provenance.sql
     mode: online_expand
     checksum: 7857b3530c9bc3c25e49a61a71b46b27914f622e8ecc8f83d8efa887fa708de7
+  # 70号：对象↔制品 refs 软引用表（跟随 current + 读侧降级；启动链镜像 024 同文）。
+  - id: core/20261119_014_semantic_object_artifact_refs
+    path: core/20261119_014_semantic_object_artifact_refs.sql
+    mode: online_expand
+    checksum: 9056be5063072702f4099c9793d1effe660c724b92f5477e9acedfe774c38ffe
+

@@ -24,9 +24,9 @@ from knowledge_mining.mining.kb.services.ontology_import_service import (
     MAX_UPLOAD_BYTES, ImportValidationFailed, OntologyImportError,
 )
 from knowledge_mining.mining.kb.services.ontology_service import (
-    BatchInstantiateFailed, EndpointMismatch, Forbidden, InUse,
-    InvalidAttributeValue, InvalidDomain, InvalidName, NotFound,
-    OntologyService, UnknownAttribute,
+    BatchInstantiateFailed, CrossDomainRef, EndpointMismatch, Forbidden,
+    InUse, InvalidAttributeValue, InvalidDomain, InvalidName,
+    InvalidRefTarget, NotFound, OntologyService, UnknownAttribute,
 )
 
 router = APIRouter(prefix="/api/kb/ontology", tags=["kb-ontology"])
@@ -98,6 +98,13 @@ class SemanticRelationCreate(BaseModel):
     target_object_id: str
 
 
+class ObjectRefCreate(BaseModel):
+    """对象→制品引用（70号 §四）：target_key 缺省/空串=制品整体级。"""
+    artifact_id: str
+    target_key: str | None = None
+    note: str | None = None
+
+
 class ObjectImportCommit(BaseModel):
     import_token: str
     name_column: str
@@ -165,6 +172,16 @@ def _map_error(exc: Exception) -> HTTPException:
         })
     if isinstance(exc, (InUse,)):
         return HTTPException(409, str(exc))
+    if isinstance(exc, CrossDomainRef):
+        return HTTPException(422, detail={
+            "code": "cross_domain_forbidden",
+            "message": str(exc),
+        })
+    if isinstance(exc, InvalidRefTarget):
+        return HTTPException(422, detail={
+            "message": str(exc),
+            "valid_keys": exc.valid_keys,
+        })
     if isinstance(exc, EndpointMismatch):
         return HTTPException(400, str(exc))
     if isinstance(exc, (UnknownAttribute, InvalidAttributeValue)):
@@ -567,8 +584,80 @@ async def get_object_neighbors(
     user: dict = Depends(current_user),
     svc: OntologyService = Depends(get_ontology_service),
 ) -> dict:
+    """一度邻接 + refs 摘要（70号 §四）：artifact_refs 按当前用户制品可见性
+    过滤，上限 20 + artifact_refs_truncated；degraded 条目 target_title=null。"""
     try:
-        return await svc.get_object_neighbors(object_id, user=user)
+        result = await svc.get_object_neighbors(object_id, user=user)
+        summary = await svc.summarize_object_refs(object_id, user=user)
+        result["artifact_refs"] = summary["artifact_refs"]
+        result["artifact_refs_truncated"] = summary["artifact_refs_truncated"]
+        return result
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+# ------------------------------------------------------------- 对象↔制品 refs（70号）
+
+@router.get("/objects/{object_id}/refs")
+async def list_object_refs(
+    object_id: str,
+    limit: int = Query(100, ge=1, le=200),
+    user: dict = Depends(current_user),
+    svc: OntologyService = Depends(get_ontology_service),
+) -> dict:
+    """对象的制品引用列表（当前用户可见性过滤；整体级/页级/行级混排，
+    degraded=target_missing 的条目灰显保留可删）。"""
+    try:
+        return await svc.list_object_refs(object_id, limit=limit, user=user)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.post("/objects/{object_id}/refs", status_code=201)
+async def create_object_ref(
+    object_id: str,
+    body: ObjectRefCreate,
+    user: dict = Depends(current_user),
+    svc: OntologyService = Depends(get_ontology_service),
+) -> dict:
+    try:
+        return await svc.create_object_ref(
+            object_id, artifact_id=body.artifact_id,
+            target_key=body.target_key, note=body.note, user=user,
+        )
+    except Exception as exc:
+        raise _map_error(exc) from exc
+
+
+@router.delete("/objects/{object_id}/refs/{ref_id}", status_code=204)
+async def delete_object_ref(
+    object_id: str,
+    ref_id: str,
+    user: dict = Depends(current_user),
+    svc: OntologyService = Depends(get_ontology_service),
+) -> Response:
+    try:
+        await svc.delete_object_ref(object_id, ref_id, user=user)
+    except Exception as exc:
+        raise _map_error(exc) from exc
+    return Response(status_code=204)
+
+
+@router.get("/artifact-refs")
+async def list_artifact_refs(
+    artifact_id: str = Query(..., min_length=1),
+    target_key: str | None = Query(
+        None, description="页/行 key；省略=该制品全部引用（含整体级）"),
+    limit: int = Query(100, ge=1, le=200),
+    user: dict = Depends(current_user),
+    svc: OntologyService = Depends(get_ontology_service),
+) -> dict:
+    """制品侧反查（评审①）：该制品（或指定页/行）被哪些对象引用；制品读
+    权限 + 对象域成员双重口径（非对象域成员 → object_invisible 占位）。"""
+    try:
+        return await svc.list_artifact_refs(
+            artifact_id, target_key=target_key, limit=limit, user=user,
+        )
     except Exception as exc:
         raise _map_error(exc) from exc
 

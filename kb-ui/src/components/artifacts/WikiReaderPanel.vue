@@ -182,6 +182,14 @@
             </span>
           </div>
 
+          <!-- 70号：本页「相关对象」chips（target_key=page_key，跨 revision 稳定） -->
+          <ArtifactRefsChips
+            v-if="selectedKey"
+            class="wiki-reader__refs"
+            :artifact-id="artifactId"
+            :target-key="selectedKey"
+          />
+
           <!-- 编辑模式：markdown 源文 textarea；保存后整页标记人工修订 -->
           <template v-if="editing">
             <div class="wiki-reader__edit-bar">
@@ -369,6 +377,7 @@ import type { EChartsOption } from 'echarts'
 import { useArtifactsApi } from '@/api/artifacts'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ArtifactRefsChips from '@/components/artifacts/ArtifactRefsChips.vue'
 import WikiGraphCanvas from './WikiGraphCanvas.vue'
 import { extractWikiNavTarget, extractWikiSrcUnit, renderWikiMarkdown } from '@/utils/markdown'
 import { buildWikiNeighborhood } from '@/utils/wikiGraph'
@@ -1326,6 +1335,8 @@ defineExpose({ reload: loadPages, selectPage, currentPageKey: computed(() => sel
 .wiki-reader__chip.is-contradiction { color: #ef4444; background: rgba(239, 68, 68, 0.08); }
 .wiki-reader__chip.is-open_question { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
 .wiki-reader__page-time { font-size: 11.5px; color: var(--kb-text-tertiary); }
+/* 70号：本页「相关对象」chips 行（meta 行下、正文上） */
+.wiki-reader__refs { padding: 8px 20px 0; }
 .wiki-reader__page-actions { margin-left: auto; display: inline-flex; gap: 8px; }
 .wiki-reader__page-actions .el-button + .el-button { margin-left: 0; }
 

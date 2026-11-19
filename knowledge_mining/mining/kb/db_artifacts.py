@@ -270,6 +270,14 @@ class ArtifactDB:
                     "DELETE FROM mcp_key_open_artifacts WHERE artifact_id = %s",
                     (artifact_id,),
                 )
+                # 70号：对象↔制品 refs 软引用行同入级联（对未被引用的制品为
+                # 空删零副作用；引用是关于对象的事实，但目标消亡后留着只会
+                # 累积死行——与对象侧 CASCADE 对称）。
+                await conn.execute(
+                    "DELETE FROM semantic_object_artifact_refs"
+                    " WHERE artifact_id = %s",
+                    (artifact_id,),
+                )
                 await conn.execute(
                     "DELETE FROM kb_artifact_members WHERE artifact_id = %s",
                     (artifact_id,),
@@ -1371,7 +1379,7 @@ class ArtifactDB:
 
     async def list_rows(
         self, artifact_id: str, revision: int, page: int = 1, size: int = 50,
-        sort_ordinal: bool = True,
+        sort_ordinal: bool = True, q: str | None = None,
     ) -> dict[str, Any]:
         """codex三审 P1-2b（读取投影兜底）：返回前对每行 data 做 alias 旧名→
         当前列名投影（当前名键缺失且旧名键存在时，仅在返回视图改名，不改
@@ -1382,20 +1390,27 @@ class ArtifactDB:
         page = max(1, int(page))
         size = max(1, min(_MAX_PAGE_SIZE, int(size)))
         order = "ordinal, row_key" if sort_ordinal else "row_key"
+        # 70号评审⑦：行选择器关键字过滤（row_key 或任意列值包含，%/_ 按字面）。
+        where = "artifact_id = %s AND revision = %s"
+        where_params: list[Any] = [artifact_id, revision]
+        if q:
+            like = f"%{q.replace('%', chr(92) + '%').replace('_', chr(92) + '_')}%"
+            where += " AND (row_key ILIKE %s OR data::text ILIKE %s)"
+            where_params.extend([like, like])
         async with self._pool.connection() as conn:
             cur = await conn.execute(
                 f"""SELECT row_key, data, provenance, conflicts, ordinal
                     FROM kb_table_rows
-                    WHERE artifact_id = %s AND revision = %s
+                    WHERE {where}
                     ORDER BY {order}
                     LIMIT %s OFFSET %s""",
-                (artifact_id, revision, size, (page - 1) * size),
+                (*where_params, size, (page - 1) * size),
             )
             rows = [dict(r) for r in await cur.fetchall()]
             cur = await conn.execute(
-                """SELECT COUNT(*) AS n FROM kb_table_rows
-                   WHERE artifact_id = %s AND revision = %s""",
-                (artifact_id, revision),
+                f"""SELECT COUNT(*) AS n FROM kb_table_rows
+                    WHERE {where}""",
+                tuple(where_params),
             )
             total = int((await cur.fetchone())["n"])  # type: ignore[index]
             cur = await conn.execute(

@@ -61,6 +61,19 @@ class EndpointMismatch(OntologyError):
     """语义关系两端对象的本体与关系类型端点不匹配（67号 §5.2）。"""
 
 
+class CrossDomainRef(OntologyError):
+    """引用目标制品与对象库不同域（70号 §3.2 一期限同域）。"""
+
+
+class InvalidRefTarget(OntologyError):
+    """target_key 在制品 current revision 内不存在（422 附 valid_keys 样例）。"""
+
+    def __init__(self, message: str, valid_keys: list[str]) -> None:
+        super().__init__(message)
+        self.valid_keys = valid_keys
+
+
+
 class BatchInstantiateFailed(OntologyError):
     """批量实例化校验失败（67号 §6.8）：整批未落库。route 翻 422，
     detail={message, report}（report.errors 带 objects[i]/relations[j]
@@ -77,6 +90,9 @@ _MAX_NAME_LENGTH = 80       # 库/本体/关系类型/属性名
 _MAX_OBJECT_NAME_LENGTH = 200
 _MAX_DESCRIPTION_LENGTH = 2000
 _MAX_ATTRIBUTE_KEYS = 100   # 单本体属性定义数上限（防误操作炸表）
+_MAX_REF_NOTE_LENGTH = 500  # refs 关联理由上限（70号 评审⑦）
+_REF_SUMMARY_LIMIT = 20     # neighbors 对象卡 refs 摘要上限（§四）
+
 
 
 class OntologyService:
@@ -795,6 +811,195 @@ class OntologyService:
         if neighbors is None:  # pragma: no cover - _checked 已保证存在
             raise NotFound(object_id)
         return neighbors
+
+    # --------------------------------------------------------- 对象↔制品 refs（70号）
+
+    async def create_object_ref(
+        self, object_id: str, *, artifact_id: str, target_key: str | None,
+        note: str | None, user: dict[str, Any],
+    ) -> dict[str, Any]:
+        """建引用（§三/§四）：写=对象库域管理员；制品须存在且 kind 合法
+        （404 不泄露他域）；同域约束（422 cross_domain_forbidden）；
+        target_key 须存在于制品 current revision（422 附样例）；重复 409。"""
+        obj = await self._get_object_checked(object_id, user, require_write=True)
+        library = await self._db.get_library(obj["library_id"])
+        if library is None:  # pragma: no cover - _checked 已保证存在
+            raise NotFound(object_id)
+        artifact_id = str(artifact_id or "").strip()
+        artifact = await self._db.get_ref_artifact(artifact_id)
+        if artifact is None or artifact["kind"] not in ("table", "wiki"):
+            raise NotFound(artifact_id)
+        if artifact["domain_id"] != library["domain"]:
+            raise CrossDomainRef(
+                "cross_domain_forbidden：引用目标制品须与对象库同域（70号一期约束）"
+            )
+        target_key = str(target_key or "").strip()
+        note = str(note or "").strip()
+        if len(note) > _MAX_REF_NOTE_LENGTH:
+            raise InvalidName(f"关联理由不能超过 {_MAX_REF_NOTE_LENGTH} 字")
+        if target_key and not await self._db.artifact_target_exists(
+            artifact_id, revision=artifact["current_revision"],
+            kind=artifact["kind"], target_key=target_key,
+        ):
+            valid = await self._db.sample_artifact_target_keys(
+                artifact_id, revision=artifact["current_revision"],
+                kind=artifact["kind"],
+            )
+            raise InvalidRefTarget(
+                f"目标 {target_key} 不在制品「{artifact['title']}」当前版本内"
+                "（跟随 current，目标被移除后不可新建引用）",
+                valid,
+            )
+        try:
+            ref = await self._db.create_object_ref(
+                object_id=object_id, artifact_id=artifact_id,
+                target_key=target_key, note=note, created_by=user["id"],
+            )
+        except UniqueViolation as exc:
+            raise Duplicate("该引用（同对象同制品同目标）已存在") from exc
+        item = {**ref,
+                "artifact_title": artifact["title"], "kind": artifact["kind"],
+                "artifact_status": artifact["status"],
+                "artifact_domain_id": artifact["domain_id"],
+                "current_revision": artifact["current_revision"]}
+        return (await self._decorate_refs([item]))[0]
+
+    async def list_object_refs(
+        self, object_id: str, *, limit: int, user: dict[str, Any],
+    ) -> dict[str, Any]:
+        """refs 列表（§3.3 第 1 行）：读=域成员；返回当前用户可见的制品，
+        不可见的引用整行不出现；truncated=过滤后总数超 limit（评审⑤）。"""
+        obj = await self._get_object_checked(object_id, user)
+        library = await self._db.get_library(obj["library_id"])
+        if library is None:  # pragma: no cover - _checked 已保证存在
+            raise NotFound(object_id)
+        privileged = await self._artifact_privileged(user, library["domain"])
+        items, total = await self._db.list_object_refs(
+            object_id, user_id=user["id"], privileged=privileged, limit=limit,
+        )
+        items = await self._decorate_refs(items)
+        return {"items": items, "truncated": total > len(items)}
+
+    async def delete_object_ref(
+        self, object_id: str, ref_id: str, *, user: dict[str, Any],
+    ) -> None:
+        """删单条引用：对象库域管理员；ref 不属于该对象 → 404。"""
+        await self._get_object_checked(object_id, user, require_write=True)
+        ref = await self._db.get_object_ref(ref_id)
+        if ref is None or ref["object_id"] != object_id:
+            raise NotFound(ref_id)
+        if not await self._db.delete_object_ref(ref_id):
+            raise NotFound(ref_id)
+
+    async def list_artifact_refs(
+        self, artifact_id: str, *, target_key: str | None, limit: int,
+        user: dict[str, Any],
+    ) -> dict[str, Any]:
+        """制品侧反查（§3.3 第 2 行，评审①）：制品读（不可见 404 反探测）+
+        对象域成员双重口径——非对象域成员该 ref 降级为对象不可见占位
+        （object_name/ontology_name 置空 + degraded=object_invisible）。"""
+        artifact = await self._db.get_ref_artifact(str(artifact_id or "").strip())
+        if artifact is None or artifact["kind"] not in ("table", "wiki"):
+            raise NotFound(artifact_id)
+        privileged = await self._artifact_privileged(user, artifact["domain_id"])
+        if not privileged:
+            # 制品读口径对齐 artifact_service._assert_role：非特权读者先要求
+            # 当前绑定制品域（撤域残留成员行不放行），再 public/owner/成员，
+            # 不满足一律 404 反探测。
+            if not await self._db.is_domain_member(
+                user_id=user["id"], domain=artifact["domain_id"],
+            ):
+                raise NotFound(artifact_id)
+            member_ids = await self._db.user_artifact_member_ids(
+                user["id"], [artifact["artifact_id"]],
+            )
+            if (artifact["visibility"] != "public"
+                    and artifact["owner_user_id"] != user["id"]
+                    and artifact["artifact_id"] not in member_ids):
+                raise NotFound(artifact_id)
+        items, total = await self._db.list_artifact_refs(
+            artifact["artifact_id"], target_key=target_key, limit=limit,
+        )
+        # 对象信息降级（同域坍缩下域管理员/站点管理员恒为域成员，仅防御）
+        member_of: dict[str, bool] = {}
+        for domain in sorted({str(i["library_domain"]) for i in items}):
+            member_of[domain] = await self._db.is_domain_member(
+                user_id=user["id"], domain=domain,
+            )
+        for item in items:
+            if member_of.get(str(item["library_domain"])):
+                item["degraded"] = None
+            else:
+                item["object_name"] = None
+                item["ontology_name"] = None
+                item["degraded"] = "object_invisible"
+        return {"items": items, "truncated": total > len(items)}
+
+    async def summarize_object_refs(
+        self, object_id: str, *, user: dict[str, Any], key_id: str | None = None,
+        limit: int = _REF_SUMMARY_LIMIT,
+    ) -> dict[str, Any]:
+        """neighbors 对象卡的 refs 摘要（§四）：key_id 给定走 MCP 钥匙
+        open_artifacts 开放子集（§3.3 第 3 行），否则按当前用户制品可见性
+        （第 1 行，与 refs 列表同一套）。degraded 条目 target_title=None
+        （评审⑦）。读权限由调用方（neighbors 链路）先行。"""
+        if key_id is not None:
+            rows, total = await self._db.list_object_refs_for_key(
+                object_id, key_id=key_id, limit=limit,
+            )
+        else:
+            obj = await self._db.get_object_brief(object_id)
+            if obj is None:
+                raise NotFound(object_id)
+            library = await self._db.get_library(obj["library_id"])
+            if library is None:  # pragma: no cover - 对象在则库在
+                raise NotFound(object_id)
+            privileged = await self._artifact_privileged(user, library["domain"])
+            rows, total = await self._db.list_object_refs(
+                object_id, user_id=user["id"], privileged=privileged,
+                limit=limit,
+            )
+        rows = await self._decorate_refs(rows)
+        refs = [
+            {
+                "artifact_id": r["artifact_id"],
+                "artifact_title": r["artifact_title"],
+                "kind": r["kind"],
+                "target_key": r["target_key"],
+                "target_title": r["target_title"],
+                "artifact_status": r["artifact_status"],
+                "degraded": r["degraded"],
+            }
+            for r in rows
+        ]
+        return {"artifact_refs": refs, "artifact_refs_truncated": total > len(refs)}
+
+    async def _decorate_refs(
+        self, items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """读侧降级装饰（§五矩阵）：整体级永不 degraded；页/行级按 current
+        revision 现解析，缺席 → degraded=target_missing（可删保留）。"""
+        if not items:
+            return items
+        titles = await self._db.resolve_ref_targets(items)
+        for item in items:
+            item["target_title"] = None
+            item["degraded"] = None
+            if item["target_key"]:
+                hit = titles.get((item["artifact_id"], item["target_key"]))
+                if hit is None:
+                    item["degraded"] = "target_missing"
+                else:
+                    item["target_title"] = hit
+        return items
+
+    async def _artifact_privileged(
+        self, user: dict[str, Any], domain: str,
+    ) -> bool:
+        """制品特权视角：site admin 或该域 domain admin（对同域制品全通）。"""
+        if user.get("site_role") == "admin":
+            return True
+        return await self._db.can_manage_domain(user_id=user["id"], domain=domain)
 
     # --------------------------------------------------------- 权限/校验
 

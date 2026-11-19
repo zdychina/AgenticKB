@@ -11,11 +11,15 @@
 import { createProxyClient } from '@/api/proxyClient'
 import { useDomainStore } from '@/stores/domain'
 import type {
+  ArtifactObjectRef,
+  ArtifactObjectRefsPage,
   ExtractStatusBody,
   ImportCommitResult,
   ImportUploadResult,
   InstantiateResult,
   LibrarySchema,
+  ObjectArtifactRef,
+  ObjectArtifactRefsPage,
   ObjectNeighbors,
   Ontology,
   OntologyAttributeDef,
@@ -25,6 +29,7 @@ import type {
   OntologyObjectRow,
   OntologyObjectsPage,
   OntologyRelation,
+  ObjectNeighborsWithRefs,
   LibraryGraph,
   OntologyObjectSearchResult,
   SemanticRelationRow,
@@ -216,10 +221,52 @@ export function useOntologyApi() {
     await client.delete(`/api/kb/ontology/objects/${objectId}`)
   }
 
-  async function getObjectNeighbors(objectId: string): Promise<ObjectNeighbors> {
+  /** 70号起响应附带 artifact_refs 摘要（按调用者可见性/MCP 钥匙开放子集过滤）。 */
+  async function getObjectNeighbors(objectId: string): Promise<ObjectNeighborsWithRefs> {
     const { data } = await client.get(
       `/api/kb/ontology/objects/${objectId}/neighbors`)
-    return data as ObjectNeighbors
+    return data as ObjectNeighborsWithRefs
+  }
+
+  // ── 对象↔制品 refs（70号）──
+
+  /** 对象的制品引用列表（服务端已按当前用户制品可见性整行过滤）。 */
+  async function listObjectRefs(
+    objectId: string, limit = 100,
+  ): Promise<ObjectArtifactRefsPage> {
+    const { data } = await client.get(
+      `/api/kb/ontology/objects/${objectId}/refs`, { params: { limit } })
+    return data as ObjectArtifactRefsPage
+  }
+
+  /** 建引用：target_key 缺省=制品整体级；422 附 valid_keys 样例/跨域码。 */
+  async function createObjectRef(
+    objectId: string,
+    payload: { artifact_id: string; target_key?: string; note?: string },
+  ): Promise<ObjectArtifactRef> {
+    const { data } = await client.post(
+      `/api/kb/ontology/objects/${objectId}/refs`, payload)
+    return data as ObjectArtifactRef
+  }
+
+  async function deleteObjectRef(objectId: string, refId: string): Promise<void> {
+    await client.delete(`/api/kb/ontology/objects/${objectId}/refs/${refId}`)
+  }
+
+  /** 制品侧反查（评审①）：该制品/页/行被哪些对象引用。
+   * targetKey=''（制品整体级）是有效过滤值——须显式下发，不能按 falsy 丢弃；
+   * undefined=不筛（该制品全部引用）。 */
+  async function listArtifactRefs(
+    artifactId: string, targetKey?: string, limit = 100,
+  ): Promise<ArtifactObjectRefsPage> {
+    const { data } = await client.get('/api/kb/ontology/artifact-refs', {
+      params: {
+        artifact_id: artifactId,
+        ...(targetKey !== undefined ? { target_key: targetKey } : {}),
+        limit,
+      },
+    })
+    return data as ArtifactObjectRefsPage
   }
 
   // ── 批量导入（67号 §七 两步式）──
@@ -384,6 +431,10 @@ export function useOntologyApi() {
     updateObject,
     deleteObject,
     getObjectNeighbors,
+    listObjectRefs,
+    createObjectRef,
+    deleteObjectRef,
+    listArtifactRefs,
     uploadObjectImport,
     commitObjectImport,
     startObjectExtract,

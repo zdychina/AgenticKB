@@ -75,9 +75,10 @@
       <el-table-column label="更新时间" width="160">
         <template #default="{ row }">{{ formatTime(row.updated_at) }}</template>
       </el-table-column>
-      <el-table-column v-if="canWrite" label="操作" width="130" align="center">
+      <el-table-column v-if="canWrite" label="操作" width="170" align="center">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+          <el-button link type="primary" data-test="open-row-refs" @click="openRefs(row)">引用</el-button>
           <el-button link type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -195,6 +196,14 @@
           @remove="removeEdge"
           @jump="openDetailById"
         />
+        <!-- 70号对象卡：可见引用数（neighbors 附带摘要，上限 20）+ 引用管理入口 -->
+        <h4 class="kb-section-title">制品引用</h4>
+        <p class="obj-tab__refs-line" data-test="object-refs-count">
+          被 {{ refsSummary }} 个制品引用
+          <el-button link type="primary" data-test="open-detail-refs" @click="openRefsFromDetail">
+            {{ canWrite ? '管理' : '查看' }}
+          </el-button>
+        </p>
         <div v-if="canWrite" class="obj-tab__edge-actions">
           <el-button type="primary" :disabled="relations.length < 1" data-test="add-edge" @click="openEdgeCreate">
             建立关系
@@ -279,6 +288,16 @@
         @instantiated="onImported"
       />
     </el-drawer>
+
+    <!-- 制品引用（70号）：列表 + 新建/删除（写者）；列表对域成员只读可见 -->
+    <ObjectRefsDialog
+      v-model="refsDialogVisible"
+      :object-id="refsTarget.id"
+      :object-name="refsTarget.name"
+      :library-id="libraryId"
+      :can-write="canWrite"
+      @changed="onRefsChanged"
+    />
   </div>
 </template>
 
@@ -291,11 +310,12 @@ import { useOntologyApi } from '@/api/ontology'
 import { apiErrorDetail } from '@/api/proxyClient'
 import EmptyState from '@/components/common/EmptyState.vue'
 import NeighborList from './NeighborList.vue'
+import ObjectRefsDialog from './ObjectRefsDialog.vue'
 import OntologyImportWizard from './OntologyImportWizard.vue'
 import OntologyExtractWizard from './OntologyExtractWizard.vue'
 import type {
-  ObjectNeighborEdge, Ontology, OntologyAttributeDef, OntologyObjectDetail,
-  OntologyObjectRow, OntologyRelation,
+  ObjectNeighborEdge, ObjectNeighborsWithRefs, Ontology, OntologyAttributeDef,
+  OntologyObjectDetail, OntologyObjectRow, OntologyRelation,
 } from '@/types/ontology'
 
 const props = defineProps<{
@@ -562,8 +582,8 @@ function onImported() {
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref<OntologyObjectDetail | null>(null)
-const neighbors = ref<{ outgoing: ObjectNeighborEdge[]; incoming: ObjectNeighborEdge[] }>({
-  outgoing: [], incoming: [],
+const neighbors = ref<ObjectNeighborsWithRefs>({
+  outgoing: [], incoming: [], artifact_refs: [], artifact_refs_truncated: false,
 })
 /** 详情加载并发防护：只认最新一次请求的响应（连点跳转时旧响应丢弃）。 */
 let detailSeq = 0
@@ -611,6 +631,32 @@ async function removeEdge(edge: ObjectNeighborEdge) {
   } catch (error) {
     ElMessage.error(`解除失败：${await apiErrorDetail(error)}`)
   }
+}
+
+// ── 制品引用（70号）──
+const refsDialogVisible = ref(false)
+const refsTarget = ref<{ id: string; name: string }>({ id: '', name: '' })
+
+/** 对象卡可见引用数（摘要上限 20，截断显示 20+；接口缺字段按 0 兜底）。 */
+const refsSummary = computed(() => {
+  const list = neighbors.value.artifact_refs
+  const count = Array.isArray(list) ? list.length : 0
+  return neighbors.value.artifact_refs_truncated ? `${count}+` : String(count)
+})
+
+function openRefs(row: { id: string; name: string }) {
+  refsTarget.value = { id: row.id, name: row.name }
+  refsDialogVisible.value = true
+}
+
+function openRefsFromDetail() {
+  if (!detail.value) return
+  openRefs({ id: detail.value.id, name: detail.value.name })
+}
+
+/** 引用增删后刷新抽屉摘要计数（refs 不影响库级计数，不必冒泡 refresh）。 */
+async function onRefsChanged() {
+  if (detail.value) await loadDetail(detail.value.id)
 }
 
 // ── 建立语义关系 ──
@@ -730,4 +776,7 @@ onMounted(reload)
   padding-top: 12px;
   border-top: 1px solid var(--kb-border-light);
 }
+
+/* 70号对象卡引用行：轻文案 + 管理入口 */
+.obj-tab__refs-line { margin: 0; font-size: 13px; color: var(--kb-text-secondary); }
 </style>

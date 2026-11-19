@@ -23,8 +23,11 @@ const state = vi.hoisted(() => ({
 }))
 
 vi.mock('@/api/artifacts', () => ({ useArtifactsApi: () => state.api }))
+// installAuthInterceptors 陪跑：70号起本组件经 ArtifactRefsChips 引入真实
+// @/api/ontology 模块链（→ stores/domain → controlPlane），mock 须补该导出
 vi.mock('@/api/proxyClient', () => ({
   apiErrorDetail: (error: unknown) => state.apiErrorDetail(error),
+  installAuthInterceptors: () => {},
 }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: state.routerPush }) }))
 vi.mock('element-plus', () => ({

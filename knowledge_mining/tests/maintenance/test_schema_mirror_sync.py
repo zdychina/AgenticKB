@@ -33,6 +33,9 @@ MIRROR_PAIRS = [
     # 69号批次0：抽取溯源列（ALTER-only，无 CREATE TABLE——_ddl_body 走全量回退）
     ("databases/kb/schemas/023_semantic_object_provenance.sql",
      "databases/migrations/core/20261118_013_semantic_object_provenance.sql"),
+    # 70号批次0：对象↔制品 refs 软引用表
+    ("databases/kb/schemas/024_semantic_object_artifact_refs.sql",
+     "databases/migrations/core/20261119_014_semantic_object_artifact_refs.sql"),
 ]
 
 

@@ -723,13 +723,15 @@ async def list_rows(
     draft: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=500),
+    q: str | None = Query(default=None, max_length=200),
+    revision: int | None = Query(default=None, ge=0),
     user: dict[str, Any] = Depends(current_user),
     svc: ArtifactService = Depends(get_artifact_service),
 ):
     try:
         return await svc.list_rows(
             user=user, artifact_id=artifact_id,
-            draft=draft, page=page, size=size,
+            draft=draft, revision=revision, page=page, size=size, q=q,
         )
     except ArtifactError as exc:
         raise _map_error(exc) from None

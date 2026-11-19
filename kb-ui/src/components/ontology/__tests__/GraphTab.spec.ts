@@ -67,6 +67,9 @@ interface GraphTabVm {
   drawerLoading: boolean
   drawerDetail: { name: string } | null
   drawerNeighbors: { outgoing: unknown[]; incoming: unknown[] }
+  drawerRefsSummary: string
+  refsDialogVisible: boolean
+  openDrawerRefs: () => void
   openSourceDocument: () => void
   load: () => Promise<void>
   renderGraph: () => Promise<void>
@@ -228,6 +231,28 @@ describe('graph tab — 实例图渲染（68号 §四）', () => {
     lastGraph().clickNode('obj-slice')
     await flushPromises()
     expect(state.api.getObject).toHaveBeenCalledWith('obj-slice')
+  })
+
+  it('对象卡显示被 N 个制品引用并打开只读引用对话框（70号）', async () => {
+    state.api.getObjectNeighbors.mockResolvedValue({
+      outgoing: [], incoming: [],
+      artifact_refs: [
+        { artifact_id: 'art-1', artifact_title: 'MOP 表', kind: 'table', target_key: 'cmd-amf-001' },
+      ],
+      artifact_refs_truncated: true,
+    })
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as GraphTabVm
+
+    lastGraph().clickNode('obj-amf')
+    await flushPromises()
+
+    // 截断 → 1+；打开只读对话框（canWrite 恒 false——图谱是读面）
+    expect(vm.drawerRefsSummary).toBe('1+')
+    vm.openDrawerRefs()
+    expect(vm.refsDialogVisible).toBe(true)
+    expect(wrapper.findComponent({ name: 'ObjectRefsDialog' }).props('canWrite')).toBe(false)
   })
 
   it('empty library shows guidance and does not create a canvas', async () => {

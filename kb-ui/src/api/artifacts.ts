@@ -303,8 +303,17 @@ export function useArtifactsApi() {
     },
 
     // ── 行 ──
+    /** q=关键字过滤（70号评审⑦：行选择器按 row_key/列值搜索，万行级不翻页选取）；
+     * revision=显式版本读（editor+；70号目标选择器按 current_revision 口径取行）。 */
     async listRows(
-      artifactId: string, params?: { draft?: boolean; page?: number; size?: number },
+      artifactId: string,
+      params?: {
+        draft?: boolean
+        page?: number
+        size?: number
+        q?: string
+        revision?: number
+      },
     ): Promise<ArtifactRowsPage> {
       const { data } = await client.get(`/api/artifacts/${artifactId}/table/rows`, { params })
       return data

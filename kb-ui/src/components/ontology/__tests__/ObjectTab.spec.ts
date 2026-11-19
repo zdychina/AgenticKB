@@ -53,6 +53,19 @@ interface ObjectTabVm {
     source_document_name?: string | null
     source_kb_id?: string | null
   }) => void
+  neighbors: {
+    outgoing: Array<{ id: string }>
+    incoming: Array<{ id: string }>
+    artifact_refs?: Array<{ artifact_id: string }>
+    artifact_refs_truncated?: boolean
+  }
+  detail: { id: string; name: string } | null
+  refsDialogVisible: boolean
+  refsTarget: { id: string; name: string }
+  refsSummary: string
+  openRefs: (row: { id: string; name: string }) => void
+  openRefsFromDetail: () => void
+  loadDetail: (objectId: string) => Promise<void>
 }
 
 const ontologies = [
@@ -384,5 +397,77 @@ describe('object tab — 新建后立即可见（回归：留存筛选曾把新�
 
     expect(vm.edgeForm.relationId).toBe('')
     expect(vm.edgeForm.otherObjectId).toBe('')
+  })
+})
+
+describe('object tab — 制品引用（70号：行操作入口 + 对象卡可见计数）', () => {
+  beforeEach(() => {
+    state.api.listObjects.mockReset().mockResolvedValue({ items: [], total: 0 })
+    state.api.getObject.mockReset().mockResolvedValue({
+      id: 'obj-1', library_id: 'lib-1', ontology_id: 'onto-device', ontology_name: '设备',
+      name: 'AMF', attributes_json: null, source: 'manual', created_by: 'u1',
+      created_at: '2026-11-19T08:00:00+00:00', updated_at: '2026-11-19T08:00:00+00:00',
+      attribute_defs: [], outgoing_count: 0, incoming_count: 0,
+    })
+    state.api.getObjectNeighbors.mockReset().mockResolvedValue({
+      outgoing: [], incoming: [],
+      artifact_refs: [
+        { artifact_id: 'art-1', artifact_title: 'MOP 表', kind: 'table', target_key: 'cmd-amf-001' },
+        { artifact_id: 'art-w1', artifact_title: '运维 wiki', kind: 'wiki', target_key: '' },
+      ],
+      artifact_refs_truncated: false,
+    })
+    state.ui.error.mockReset()
+  })
+
+  it('行操作「引用」定位对象并打开引用对话框', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ObjectTabVm
+
+    vm.openRefs({ id: 'obj-2', name: 'SMF' })
+
+    expect(vm.refsTarget).toEqual({ id: 'obj-2', name: 'SMF' })
+    expect(vm.refsDialogVisible).toBe(true)
+  })
+
+  it('对象卡摘要计数=可见引用数，截断显示 N+', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ObjectTabVm
+
+    await vm.loadDetail('obj-1')
+    await flushPromises()
+
+    expect(vm.refsSummary).toBe('2')
+
+    vm.neighbors.artifact_refs_truncated = true
+    await flushPromises()
+    expect(vm.refsSummary).toBe('2+')
+  })
+
+  it('neighbors 响应缺 artifact_refs（旧口径/异常）时计数兜底 0', async () => {
+    state.api.getObjectNeighbors.mockResolvedValue({ outgoing: [], incoming: [] })
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ObjectTabVm
+
+    await vm.loadDetail('obj-1')
+    await flushPromises()
+
+    expect(vm.refsSummary).toBe('0')
+  })
+
+  it('对象卡「管理」入口从当前详情对象打开对话框', async () => {
+    const wrapper = mountTab()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as ObjectTabVm
+
+    await vm.loadDetail('obj-1')
+    await flushPromises()
+    vm.openRefsFromDetail()
+
+    expect(vm.refsTarget).toEqual({ id: 'obj-1', name: 'AMF' })
+    expect(vm.refsDialogVisible).toBe(true)
   })
 })

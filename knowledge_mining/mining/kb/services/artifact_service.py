@@ -687,6 +687,7 @@ class ArtifactService:
         self, *, user: dict[str, Any], artifact_id: str,
         draft: bool = False, revision: int | None = None,
         page: int = 1, size: int = 50, sort_ordinal: bool = True,
+        q: str | None = None,
     ) -> dict[str, Any]:
         """revision 路由（61号 §9.1）：draft=True → 草稿视图（editor+）——draft_open
         时读 rev0，未开草稿投影 current（discard 语义：干净态=与已发布一致）；
@@ -709,7 +710,7 @@ class ArtifactService:
             if rev <= 0:
                 return {"rows": [], "total": 0, "page": max(1, page), "size": size}
         return await self._db.list_rows(
-            artifact_id, rev, page=page, size=size, sort_ordinal=sort_ordinal,
+            artifact_id, rev, page=page, size=size, sort_ordinal=sort_ordinal, q=q,
         )
 
     async def count_rows(
