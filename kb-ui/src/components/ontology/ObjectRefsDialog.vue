@@ -3,7 +3,7 @@
     :model-value="modelValue"
     width="680px"
     append-to-body
-    @update:model-value="value => emit('update:modelValue', value)"
+    @update:model-value="emit('update:modelValue', $event)"
   >
     <template #header>
       <div class="kb-dialog-title"><el-icon><Link /></el-icon>制品引用 · {{ objectName }}</div>

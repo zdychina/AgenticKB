@@ -11,7 +11,6 @@
 import { createProxyClient } from '@/api/proxyClient'
 import { useDomainStore } from '@/stores/domain'
 import type {
-  ArtifactObjectRef,
   ArtifactObjectRefsPage,
   ExtractStatusBody,
   ImportCommitResult,
@@ -20,7 +19,7 @@ import type {
   LibrarySchema,
   ObjectArtifactRef,
   ObjectArtifactRefsPage,
-  ObjectNeighbors,
+  ObjectNeighborsWithRefs,
   Ontology,
   OntologyAttributeDef,
   OntologyDetail,
@@ -29,7 +28,6 @@ import type {
   OntologyObjectRow,
   OntologyObjectsPage,
   OntologyRelation,
-  ObjectNeighborsWithRefs,
   LibraryGraph,
   OntologyObjectSearchResult,
   SemanticRelationRow,
