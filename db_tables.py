@@ -109,6 +109,8 @@ EXPORT_TABLES = [
     "ontology_relations",
     "semantic_objects",
     "semantic_relations",
+    # 图片VLM图注方案B（迁移 013）：VLM 图注缓存
+    "asset_figure_caption_cache",
 ]
 
 # 兼容尚未完成 52 号 bootstrap 的测试/旧库；生产收敛库验证要求这些表存在。

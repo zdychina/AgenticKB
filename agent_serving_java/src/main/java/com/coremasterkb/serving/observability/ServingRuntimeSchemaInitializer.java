@@ -42,8 +42,10 @@ public class ServingRuntimeSchemaInitializer implements DomainSchemaEnsurer {
     // 迁移 id 含日期+表名全局唯一（双 010 保留，ledger 按整串 id 记账），合并后刷新。
     // 2026-11-18 合并 upstream/master：工作台与本体两条线各自用掉 012（id 含日期+
     // 表名全局唯一，双 012 保留），合并后刷新（与 contract.CURRENT_SCHEMA_CHECKSUM 同值）。
+    // 图片VLM图注方案B：加 013（asset_figure_caption_cache）后刷新。
+    // 2026-11-26 合并 upstream/master（v1.2.2）：013 与双 012 汇流，合并后刷新。
     private static final String EXPECTED_SCHEMA_CHECKSUM =
-            "e915aca01d68f18f7cd5cad83e0b62debbb5d05e2f036b6fcc8719b5df580aae";
+            "8e72105e32919939268dedd4f87b4caf7d8d30d3b4b8e3ac9bcd10162baef2e9";
     private static final String EXPECTED_SCHEMA_MARKER =
             "schema/" + EXPECTED_SCHEMA_VERSION;
 

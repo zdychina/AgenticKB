@@ -59,8 +59,6 @@ migrations:
     path: core/20261103_011_wiki_toc.sql
     mode: online_expand
     checksum: 30eb840b1fb9c55612f2ae1c4f936e6c3fefcbcffd4a3b0ec0cf5a7a5d56325c
-  # 分叉合并：两条线各自用了序号 012（ledger 按完整 id 跟踪，序号可共存——
-  # 与既有两个 010 同理）；按日期先后排序。
   - id: core/20261116_012_kb_workspaces
     path: core/20261116_012_kb_workspaces.sql
     mode: online_expand
@@ -69,3 +67,7 @@ migrations:
     path: core/20261117_012_ontology_library.sql
     mode: online_expand
     checksum: 773aee123a4ac0916c8dddda996c0ecf1c16071262688eea11520baa2d9eb28c
+  - id: core/20261124_013_asset_figure_caption_cache
+    path: core/20261124_013_asset_figure_caption_cache.sql
+    mode: online_expand
+    checksum: 2039fa487c2df93ebffe69f58e58f12c52ad9eba093f9c2bf36e3cc0828e96d5

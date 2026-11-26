@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { shallowMount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -45,9 +45,9 @@ describe('Sidebar navigation', () => {
     expect(wrapper.text()).toContain('概览')
     expect(wrapper.text()).toContain('知识库')
     expect(wrapper.text()).toContain('检索记录')
-    // 61号批次4：知识制品对普通成员开放（viewer 也有运行态视图）
-    expect(wrapper.text()).toContain('知识制品')
-    expect(wrapper.html()).toContain('/artifacts')
+    // 2026-11-22 收紧：知识制品功能未完善，暂不引导普通用户（仅前端菜单隐藏，后端权限不动）
+    expect(wrapper.text()).not.toContain('知识制品')
+    expect(wrapper.html()).not.toContain('/artifacts')
     expect(wrapper.html()).toContain('/retrieval-records')
     expect(wrapper.text()).not.toContain('检索范式')
     expect(wrapper.text()).not.toContain('挖掘范式')
@@ -75,6 +75,9 @@ describe('Sidebar navigation', () => {
     expect(wrapper.text()).toContain('制作工作台')
     expect(wrapper.html()).toContain('/workspaces')
     expect(wrapper.text()).not.toContain('系统设置')
+    // 2026-11-22：知识制品对域管理员/站点管理员仍可见
+    expect(wrapper.text()).toContain('知识制品')
+    expect(wrapper.html()).toContain('/artifacts')
   })
 
   it('shows standalone user management to the site administrator', () => {
@@ -84,6 +87,9 @@ describe('Sidebar navigation', () => {
     // 2026-11-17 收紧：站点管理员可见制作工作台
     expect(wrapper.text()).toContain('制作工作台')
     expect(wrapper.html()).toContain('/workspaces')
+    // 2026-11-22：知识制品对域管理员/站点管理员仍可见
+    expect(wrapper.text()).toContain('知识制品')
+    expect(wrapper.html()).toContain('/artifacts')
   })
 
   it('does not present an unmatched raw domain id as a display name', () => {
@@ -94,6 +100,26 @@ describe('Sidebar navigation', () => {
 
     expect(wrapper.text()).toContain('未选择知识域')
     expect(wrapper.text()).not.toContain('cloud_core_network')
+  })
+})
+
+describe('Sidebar language', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+  })
+
+  // jsdom localStorage 跨用例持久——防止 en 残留污染文件内后续 zh 断言
+  afterEach(() => localStorage.removeItem('kb-ui-lang'))
+
+  it('renders English nav when the global language is en', () => {
+    localStorage.setItem('kb-ui-lang', 'en')
+    auth.siteRole = 'admin'
+    const wrapper = shallowMount(Sidebar)
+    expect(wrapper.text()).toContain('Knowledge Bases')
+    expect(wrapper.text()).toContain('System Settings')
+    expect(wrapper.text()).toContain('No domain selected')
+    expect(wrapper.text()).not.toContain('知识库')
   })
 })
 

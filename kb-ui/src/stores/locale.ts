@@ -1,0 +1,81 @@
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import type { App } from 'vue'
+import { applyAppLocale, type Language } from '@/locales/element'
+import { translate } from '@/locales/translate'
+
+const GLOBAL_KEY = 'kb-ui-lang'
+const USER_KEY_PREFIX = 'kb-ui-lang:'
+
+function userKey(username: string): string {
+  return `${USER_KEY_PREFIX}${username}`
+}
+
+function readStoredLang(key: string): Language | null {
+  try {
+    const value = localStorage.getItem(key)
+    return value === 'zh' || value === 'en' ? value : null
+  } catch {
+    // localStorage 不可用（隐私模式等）——忽略，语言仅存内存（tokenStorage 先例）
+    return null
+  }
+}
+
+function writeStoredLang(key: string, lang: Language): void {
+  try {
+    localStorage.setItem(key, lang)
+  } catch {
+    // 同上：静默忽略
+  }
+}
+
+export const useLocaleStore = defineStore('locale', () => {
+  // 初始化完全在 store 内部（spec §3.5）：首个使用方 setup 即得语言，
+  // 不依赖 main.ts 预调用——组件测试不跑 main.ts。
+  const lang = ref<Language>(readStoredLang(GLOBAL_KEY) ?? 'zh')
+  const currentUser = ref('')
+
+  // 脱挂通道重注入用（spec §3.1）：setLang 在点击回调里跑，
+  // getCurrentInstance() 为 null，且从 main.ts import app 会经 App.vue 成环，
+  // 故由 main.ts 在 app.use(pinia) 后注入 app 引用。
+  let app: App | null = null
+
+  function attachApp(instance: App): void {
+    app = instance
+  }
+
+  /** 查表委托 locales/translate.ts（纯函数）；渲染期读 lang.value 即建立响应依赖。
+   * params 支持 {name} 插值。 */
+  function t(key: string, params?: Record<string, string | number>): string {
+    return translate(lang.value, key, params)
+  }
+
+  function setLang(next: Language): void {
+    if (next === lang.value) return
+    lang.value = next
+    writeStoredLang(GLOBAL_KEY, next)
+    if (currentUser.value) writeStoredLang(userKey(currentUser.value), next)
+    if (app) applyAppLocale(app, next)
+  }
+
+  /** 登录成功/fetchMe 后由 App.vue 的 user watcher 调用（spec §4 时序 step 2）：
+   * 该用户分键存在则覆盖当前语言；不存在则保持（不预写）。 */
+  function applyUserPreference(username: string): void {
+    const name = username.trim()
+    currentUser.value = name
+    if (!name) return
+    const stored = readStoredLang(userKey(name))
+    if (stored && stored !== lang.value) {
+      lang.value = stored
+      if (app) applyAppLocale(app, stored)
+    }
+  }
+
+  /** 登出时由 App.vue watcher 调用：清掉 currentUser，否则下一人在登录页
+   * 切换语言时 setLang 会把上一个用户的分键改写掉（对抗审查 HIGH-1）。 */
+  function clearUser(): void {
+    currentUser.value = ''
+  }
+
+  return { lang, t, setLang, applyUserPreference, clearUser, attachApp }
+})

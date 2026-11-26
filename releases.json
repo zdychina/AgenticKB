@@ -1,6 +1,53 @@
 {
-  "current": "1.1.49",
+  "current": "1.1.53",
   "releases": [
+    {
+      "version": "1.1.53",
+      "released_at": "2026-11-26",
+      "title": "合并 upstream/master（v1.2.2）：全站中英双语与图片图注生成两条线汇流",
+      "changes": [
+        "引入 upstream v1.2.0–1.2.2 全部内容：前端全站中英双语 i18n（语言切换/按域分模块字典/四大区域全量英化/字典 key 双向对账测试）、Embedding dimensions 死锁修复（BUG-01：删配置 500 与 send_dimensions=false 空向量）、图片图注生成算子（第10算子 figure_caption_generate + 官方第5预置「图文混合资产」+ VLM 图注缓存表）、catalogVersion 兼容放宽与 PPT 图片资产修复",
+        "迁移序号汇流：upstream 加 013（asset_figure_caption_cache，asset_core 启动链 018 同文）与 fork 双 012 并存；contract 表数 79+1=80、schema checksum 按合并后 manifest 重算（17 条迁移），Java serving 校验和同步",
+        "版本号说明：upstream 条目原号保留（v1.2.0–1.2.2）；fork 本体管理线已在 ontology-management 分支用掉 1.1.50–52（已上生产），master 合并发版取 1.1.53 起线性，两线版本台账待后续汇流时并集",
+        "fork 本体管理接入全站双语：Sidebar 菜单与 Header 页标题补 nav.ontology/title.ontology 词条（中/英），本体菜单保持域成员可见"
+      ]
+    },
+    {
+      "version": "1.2.2",
+      "released_at": "2026-11-25",
+      "title": "图片图注生成（VLM）——文档内嵌图自动写图注，图片内容可检索",
+      "changes": [
+        "新增第10个挖掘算子「图片图注生成」（figure_caption_generate，FALLBACK 语义：VLM 失败/无图/格式不支持自动降级，绝不阻断基础资产入库）；默认不进任何官方预置，存量零影响",
+        "新增官方第5套挖掘预置「图文混合资产」（标准混合链+图注算子，直接新建即用，无需手动编排）；预置范式从4套变5套",
+        "覆盖范围：PPTX 内嵌图片（PDF/DOCX 字节抽取为后续规划）；图注完整转述图中可见文字与数值（提示词 v2）；作为独立 figure 切片追加（索引从1,000,000起，与主链隔离）",
+        "默认视觉模型归 llm_service 统一管理：llm_service.yaml 顶层 vision_model 指向多模态条目（未设回落 active_model），GET /api/v1/models/vision-default 巡检端点；算子节点 model 参数留空即用默认",
+        "图注缓存表 asset_figure_caption_cache（018 DDL + 013 存量在线迁移，附加式零变更）：重跑/换范式命中缓存近零成本；切片 metadata.caption_source='vlm' 可审计",
+        "顺带修复：catalogVersion 兼容性放宽为整数比较（旧 manifest 在目录升级后仍可执行）；table facts 误伤 PPT 图片资产导致带图 PPTX 挖掘失败（'FigureAsset' object has no attribute 'table_id'）；图注门面模型回落硬编码导致的 401",
+        "配套：Java agent-serving 校验和同步新 schema（发版包含重建 jar）；帮助中心/平台指南补图注使用说明；新增文件格式支持补全调研报告（docs/下一阶段/68号，下一分支依据）"
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "released_at": "2026-11-24",
+      "title": "Embedding dimensions 死锁修复（BUG-01）——删配置 500 / 加配置 0 向量",
+      "changes": [
+        "修复 llm_service/runtime/service.py:499：submit_embedding 读可选字段 embedding.dimensions 由严格 dig() 改为 dig_optional()——配置缺失不再 ValueError 500（与同步端点 model_service 对齐），任务正常落库",
+        "新增 embedding.send_dimensions 配置开关（默认 true）：MaaS/bge-m3 等 extra_forbidden 网关设 false 后，请求体绝不携带 dimensions 字段（消除 HTTP 200 + 空 data → 0 向量死信）；dimensions 仍用于 worker 本地维度校验，智谱 embedding-3 行为不变",
+        "回归钉测：配置缺失提交不崩、配置保留解析不变、send_dimensions=false 不进 payload / 默认 true 保留；llm_service 全量 138 例通过"
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "released_at": "2026-11-24",
+      "title": "前端全站中英文双语（i18n）",
+      "changes": [
+        "新增语言切换：顶栏入口一键中/英切换，默认中文；语言偏好 localStorage 持久化（全局键 + 按用户名分键，登录后自动应用个人偏好、登出清当前用户防串写）",
+        "双语字典基建：locales/ 按域分模块（common/dashboard/kbManage/kbSearch/kbStruct/kbView/mcp/records/shell），Pinia locale store + translate 纯函数查表，Element Plus 组件库语言联动切换",
+        "四大区域全量英化：概览区（Dashboard/OpsPanel/KbCard/QueryList）、检索记录区（列表/分析面板/自定义时间校验）、MCP 接入区（接入页/钥匙配置面板）、知识库区（列表/详情/文档预览/run 详情/挖掘轨迹 + 文件管理/建库/导出/复制/替换/成员/设置/挖掘/检索质量等组件簇）",
+        "api/store 层前端错误文案接入 t()，EmptyState/WordCloud 等共用组件双语化",
+        "质量闸门：字典 key 双向对账测试（未引用 key / 调用未定义 key 均挂测试），中英文 key 一致性 + Element 语言映射 + locale store 各 40~130 例测试，前端全量测试通过"
+      ]
+    },
     {
       "version": "1.1.49",
       "released_at": "2026-11-18",

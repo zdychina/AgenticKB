@@ -17,7 +17,9 @@ CURRENT_SCHEMA_VERSION = "2026.09.user-lifecycle-retrieval-v1"
 # 迁移 id 含日期+表名全局唯一（双 010 保留，ledger 按整串 id 记账），合并后刷新。
 # 2026-11-18 合并 upstream/master：工作台与本体两条线各自用掉 012（id 含日期+
 # 表名全局唯一，双 012 保留），合并后刷新。
-CURRENT_SCHEMA_CHECKSUM = "e915aca01d68f18f7cd5cad83e0b62debbb5d05e2f036b6fcc8719b5df580aae"
+# 图片VLM图注方案B：加 013（asset_figure_caption_cache）后刷新。
+# 2026-11-26 合并 upstream/master（v1.2.2）：013 与双 012 汇流，合并后刷新。
+CURRENT_SCHEMA_CHECKSUM = "8e72105e32919939268dedd4f87b4caf7d8d30d3b4b8e3ac9bcd10162baef2e9"
 SCHEMA_MARKER_ID = f"schema/{CURRENT_SCHEMA_VERSION}"
 MIGRATION_LEDGER_TABLE = "cmkb_schema_migrations"
 LEGACY_COMPAT_TABLES: tuple[str, ...] = ("mcp_open_kbs", "mcp_access")
@@ -112,6 +114,8 @@ FORMAL_TABLES: frozenset[str] = frozenset({
     "ontology_relations",
     "semantic_objects",
     "semantic_relations",
+    # VLM 图片图注缓存（图片VLM方案B，迁移 013）：方案A/B 共用
+    "asset_figure_caption_cache",
 })
 EXPECTED_FORMAL_TABLES = len(FORMAL_TABLES)
 EXPECTED_PHYSICAL_TABLES = EXPECTED_FORMAL_TABLES + 1
@@ -159,6 +163,8 @@ PREVIOUS_RELEASE_TABLES: frozenset[str] = frozenset(
             "ontology_relations",
             "semantic_objects",
             "semantic_relations",
+            # VLM 图注缓存表（迁移 013）本版新增，一并从上一版基线扣除
+            "asset_figure_caption_cache",
         }
     )
     | {"serving_query_logs"}
@@ -195,5 +201,5 @@ RETIRED_TABLES: tuple[str, ...] = (
 if len(RETIRED_TABLES) != len(set(RETIRED_TABLES)):  # pragma: no cover - import guard
     raise RuntimeError("RETIRED_TABLES contains duplicates")
 
-if EXPECTED_FORMAL_TABLES != 79:  # pragma: no cover - import guard
-    raise RuntimeError("FORMAL_TABLES must contain exactly 79 names")
+if EXPECTED_FORMAL_TABLES != 80:  # pragma: no cover - import guard
+    raise RuntimeError("FORMAL_TABLES must contain exactly 80 names")
