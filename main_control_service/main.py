@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from main_control_service.auth import AuthMiddleware, SiteAdminValidator
+from main_control_service.auth_rate_limit import FixedWindowRateLimiter, LoginThrottle
 from main_control_service.config import MainControlSettings
 from main_control_service.ip_whitelist import IpWhitelistMiddleware
 from main_control_service.proxy import (
@@ -36,6 +37,17 @@ def _find_auth_mw(request: Request) -> AuthMiddleware | None:
             return layer
         layer = layer.app
     return None
+
+
+def _client_ip(request: Request) -> str:
+    """客户端 IP：与 IP 白名单同一解析规则——仅可信代理的 X-Forwarded-For
+    左值，其余一律取直连地址（防伪造）。BUG-04 限流锁键用它。"""
+    layer = getattr(request.app, "middleware_stack", None) or request.app
+    while hasattr(layer, "app"):
+        if isinstance(layer, IpWhitelistMiddleware):
+            return layer._resolve_client_ip(request)
+        layer = layer.app
+    return request.client.host if request.client else "unknown"
 
 
 async def _json_object(request: Request) -> dict:
@@ -187,12 +199,20 @@ def create_app(
 
     # BUG-03 可观测：auth 入口最小进程内指标（重启归零；GET /api/v1/admin/auth-stats）。
     auth_stats: dict[str, dict[str, float]] = {
-        name: {"total": 0, "errors_5xx": 0, "total_seconds": 0.0}
+        name: {"total": 0, "errors_5xx": 0, "total_seconds": 0.0, "throttled_429": 0}
         for name in ("login", "identify")
     }
 
     def _note_auth_5xx(name: str) -> None:
         auth_stats[name]["errors_5xx"] += 1
+
+    # BUG-04 限流（进程内，重启归零；多实例部署需换 Redis/共享存储）：
+    # login 连续失败 5 次/5 分钟 → 锁 5 分钟（键含 username+IP）；identify 同
+    # IP 30 次/分钟（防批量枚举）。挂 app.state 供测试与运维观测。
+    login_throttle = LoginThrottle(fail_limit=5, fail_window=300.0, lock_seconds=300.0)
+    identify_limiter = FixedWindowRateLimiter(limit=30, window=60.0)
+    app.state.login_throttle = login_throttle
+    app.state.identify_limiter = identify_limiter
 
     @app.post("/api/v1/auth/login")
     async def login(request: Request) -> Response:
@@ -201,6 +221,22 @@ def create_app(
         password = body.get("password")  # 可空：工号 member 无密码
         if not username:
             return JSONResponse(status_code=400, content={"detail": "username required"})
+        # BUG-04：锁定期间直接 429——连正确密码也不放行，且不回源 mining
+        # （防借 429/401 差异探测锁定窗口，也省上游调用）。
+        ip = _client_ip(request)
+        throttle_key = (username.lower(), ip)
+        locked = login_throttle.locked_for(throttle_key)
+        if locked > 0:
+            auth_stats["login"]["throttled_429"] += 1
+            logger.warning(
+                "login throttled username=%s ip=%s retry_after=%.0fs", username, ip, locked,
+            )
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(max(1, round(locked)))},
+                content={"detail": "too many failed attempts, try again later",
+                         "code": "auth_rate_limited"},
+            )
         auth_stats["login"]["total"] += 1
         started = time.monotonic()
         try:
@@ -213,7 +249,14 @@ def create_app(
                 mining_url, request.app.state.internal_verify_secret, username, password,
             )
             if not result or not result.get("ok"):
+                # BUG-04：失败计数 + 日志（username/ip/结果；不记密码）。
+                tripped = login_throttle.record_failure(throttle_key)
+                logger.warning(
+                    "login failed username=%s ip=%s result=invalid_credentials%s",
+                    username, ip, " lockout_engaged" if tripped else "",
+                )
                 return JSONResponse(status_code=401, content={"detail": "invalid credentials"})
+            login_throttle.record_success(throttle_key)
             u = result["user"]
             auth_mw = _find_auth_mw(request)
             secret = auth_mw.jwt_secret if auth_mw else ""
@@ -240,6 +283,18 @@ def create_app(
     @app.post("/api/v1/auth/identify")
     async def identify(request: Request) -> Response:
         """登录第一步：按用户名判定模式（password/member/not_found）。透传 mining。"""
+        # BUG-04：同 IP 固定窗口限流（30 次/分钟），防未鉴权批量枚举账号。
+        # 正常登录流程 1 次 identify + 1 次 login，不受影响。
+        ip = _client_ip(request)
+        if not identify_limiter.allow(ip):
+            auth_stats["identify"]["throttled_429"] += 1
+            logger.warning("identify throttled ip=%s", ip)
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(max(1, round(identify_limiter.retry_after(ip))))},
+                content={"detail": "too many identify requests, try again later",
+                         "code": "auth_rate_limited"},
+            )
         body = await _json_object(request)
         username = str(body.get("username") or "").strip()
         if not username:
