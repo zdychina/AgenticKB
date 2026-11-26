@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -20,6 +20,12 @@ class YamlConfigService:
     """YAML config reader+writer — config_dir is the single source of truth."""
 
     config_dir: Path
+    # BUG-03 读侧快照缓存：path → ((mtime_ns, size), 已解析映射)。
+    # API 写侧本就原子（tempfile+os.replace）；此缓存防御的是盘上文件的瞬时坏态
+    # （带外拷贝/手工编辑的 truncate-write 半截窗口）——解析失败时降级用上一份好快照。
+    _yaml_snapshots: dict[str, tuple[tuple[int, int] | None, dict[str, Any]]] = field(
+        default_factory=dict,
+    )
 
     # ------------------------------------------------------------------
     # Generic YAML reader / writer
@@ -29,6 +35,36 @@ class YamlConfigService:
         if not path.exists():
             return {}
         return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+    def _load_yaml_cached(self, path: Path) -> dict[str, Any]:
+        """带快照回退的 YAML 读（BUG-03）。
+
+        - (mtime_ns, size) 未变 → 命中缓存：login/identify/代理路由这些每请求
+          读 registry+pack 的热路径不再反复解析；
+        - 解析失败或根非映射 → 回退上一份好快照并告警——配置文件的瞬时坏态
+          不再决定登录可用性；
+        - 从未成功读过 → 照常抛出，交调用方兜底（login/identify → 可诊断 503）。
+          文件不存在仍返回 {}（与 _load_yaml 既有语义一致，不走快照回退）。
+        """
+        try:
+            st = path.stat()
+            key: tuple[int, int] | None = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            key = None
+        cached = self._yaml_snapshots.get(str(path))
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        try:
+            payload = self._load_yaml(path)
+            if not isinstance(payload, dict):
+                raise ValueError(f"root is {type(payload).__name__}, not a mapping")
+        except Exception:
+            if cached is not None:
+                logger.warning("yaml 读取失败，降级用上一份快照：%s", path, exc_info=True)
+                return cached[1]
+            raise
+        self._yaml_snapshots[str(path)] = (key, payload)
+        return payload
 
     def _save_yaml(self, path: Path, data: dict[str, Any]) -> None:
         """Atomic write: write to temp file then rename."""
@@ -78,8 +114,14 @@ class YamlConfigService:
     # ------------------------------------------------------------------
 
     def _load_domain_registry(self) -> dict[str, Any]:
-        payload = self._load_yaml(self.config_dir / "domain_registry.yaml")
-        return payload.get("domains", {})
+        payload = self._load_yaml_cached(self.config_dir / "domain_registry.yaml")
+        domains = payload.get("domains", {})
+        if not isinstance(domains, dict):
+            # 半截/畸形 registry 可能解析成功但 domains 非映射——此前直接
+            # AttributeError 裸 500（BUG-03 500 路径之一），按空注册表降级。
+            logger.warning("domain_registry.yaml 的 domains 段不是映射，按空注册表处理")
+            return {}
+        return domains
 
     def _save_domain_registry(self, domains: dict[str, Any]) -> None:
         self._save_yaml(self.config_dir / "domain_registry.yaml", {"domains": domains})
@@ -91,6 +133,8 @@ class YamlConfigService:
         registry = self._load_domain_registry()
         results: list[dict[str, Any]] = []
         for domain_id, entry in registry.items():
+            if not isinstance(entry, dict):
+                continue
             pack = self._load_scenario_pack(domain_id)
             results.append({
                 "domain_id": domain_id,
@@ -104,7 +148,7 @@ class YamlConfigService:
     def get_domain(self, domain_id: str) -> dict[str, Any]:
         registry = self._load_domain_registry()
         entry = registry.get(domain_id)
-        if not entry:
+        if not isinstance(entry, dict):
             raise HTTPException(status_code=404, detail="domain_not_found")
         pack = self._load_scenario_pack(domain_id)
         return {
@@ -120,10 +164,10 @@ class YamlConfigService:
         """Return the services dict for a domain (for proxy routing)."""
         registry = self._load_domain_registry()
         entry = registry.get(domain_id)
-        if not entry:
+        if not isinstance(entry, dict):
             raise HTTPException(status_code=404, detail="domain_not_found")
         services = entry.get("services")
-        if not services:
+        if not isinstance(services, dict) or not services:
             raise HTTPException(status_code=502, detail=f"No services configured for domain {domain_id}")
         return services
 
@@ -227,8 +271,11 @@ class YamlConfigService:
 
     def _load_scenario_pack(self, domain_id: str) -> dict[str, Any]:
         registry = self._load_domain_registry()
-        pack_ref = registry.get(domain_id, {}).get("scenario_pack", domain_id)
-        return self._load_yaml(self.config_dir / "scenario_packs" / pack_ref / "domain.yaml")
+        entry = registry.get(domain_id)
+        pack_ref = entry.get("scenario_pack", domain_id) if isinstance(entry, dict) else domain_id
+        return self._load_yaml_cached(
+            self.config_dir / "scenario_packs" / pack_ref / "domain.yaml"
+        )
 
     def get_scenario(self, domain_id: str, section: str | None = None) -> dict[str, Any]:
         self.get_domain(domain_id)  # 404 if not found
@@ -491,6 +538,8 @@ class YamlConfigService:
         registry = self._load_domain_registry()
         domains: dict[str, Any] = {}
         for domain_id, entry in registry.items():
+            if not isinstance(entry, dict):
+                continue
             pack = self._load_scenario_pack(domain_id)
             serving_section = pack.get("serving", {}) if isinstance(pack, dict) else {}
             domains[domain_id] = {
@@ -506,7 +555,7 @@ class YamlConfigService:
         registry = self._load_domain_registry()
         seen: set[str] = set()
         for entry in registry.values():
-            if not bool(entry.get("enabled", True)):
+            if not isinstance(entry, dict) or not bool(entry.get("enabled", True)):
                 continue
             url = (entry.get("services") or {}).get("mining_url")
             base = str(url).rstrip("/") if url else ""

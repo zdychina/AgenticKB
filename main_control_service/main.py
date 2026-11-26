@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -23,6 +25,8 @@ from main_control_service.release_info import (
     load_current_release,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _find_auth_mw(request: Request) -> AuthMiddleware | None:
     """在中间件栈中找 AuthMiddleware 实例（模块级，供 login/me/reload-auth 与测试复用）。"""
@@ -31,6 +35,38 @@ def _find_auth_mw(request: Request) -> AuthMiddleware | None:
         if isinstance(layer, AuthMiddleware):
             return layer
         layer = layer.app
+    return None
+
+
+async def _json_object(request: Request) -> dict:
+    """解析 JSON 对象 body。非法 JSON / 非对象根 → 400（BUG-03：此前是裸 500）。"""
+    try:
+        body = await request.json()
+    except Exception as exc:  # noqa: BLE001 — json.JSONDecodeError / UnicodeDecodeError
+        raise HTTPException(status_code=400, detail="invalid JSON body") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="JSON body must be an object")
+    return body
+
+
+def _first_enabled_mining_url(service: YamlConfigService) -> str | None:
+    """任一启用域的 mining_url（auth 是全局的，验密码/identify 与域无关）。
+
+    list_domains 每请求读 registry+pack；读侧带快照回退（BUG-03），仍失败时
+    抛出，由 login/identify 的兜底转成可诊断 503。
+    """
+    for entry in service.list_domains():
+        if not entry.get("enabled", True):
+            continue
+        did = entry.get("domain_id")
+        if not did:
+            continue
+        try:
+            svcs = service.get_domain_services(did)
+        except Exception:  # noqa: BLE001
+            continue
+        if svcs.get("mining_url"):
+            return str(svcs["mining_url"]).rstrip("/")
     return None
 
 
@@ -149,76 +185,90 @@ def create_app(
     # Auth — login / me（SKIP_PATHS 免 token）/ reload-auth（admin-only）
     # ------------------------------------------------------------------
 
+    # BUG-03 可观测：auth 入口最小进程内指标（重启归零；GET /api/v1/admin/auth-stats）。
+    auth_stats: dict[str, dict[str, float]] = {
+        name: {"total": 0, "errors_5xx": 0, "total_seconds": 0.0}
+        for name in ("login", "identify")
+    }
+
+    def _note_auth_5xx(name: str) -> None:
+        auth_stats[name]["errors_5xx"] += 1
+
     @app.post("/api/v1/auth/login")
     async def login(request: Request) -> Response:
-        body = await request.json()
+        body = await _json_object(request)
         username = str(body.get("username") or "").strip()
         password = body.get("password")  # 可空：工号 member 无密码
         if not username:
             return JSONResponse(status_code=400, content={"detail": "username required"})
-        # auth 是全局的 —— 取任一启用域的 mining_url 即可（验密码与域无关）。
-        mining_url: str | None = None
-        for entry in service.list_domains():
-            if not entry.get("enabled", True):
-                continue
-            did = entry.get("domain_id")
-            if not did:
-                continue
-            try:
-                svcs = service.get_domain_services(did)
-            except Exception:  # noqa: BLE001
-                continue
-            if svcs.get("mining_url"):
-                mining_url = str(svcs["mining_url"]).rstrip("/")
-                break
-        if not mining_url:
-            return JSONResponse(status_code=503, content={"detail": "mining backend unavailable"})
-        result = await verify_user_via_mining(
-            mining_url, request.app.state.internal_verify_secret, username, password,
-        )
-        if not result or not result.get("ok"):
-            return JSONResponse(status_code=401, content={"detail": "invalid credentials"})
-        u = result["user"]
-        auth_mw = _find_auth_mw(request)
-        secret = auth_mw.jwt_secret if auth_mw else ""
-        ttl = auth_mw.token_ttl_seconds if auth_mw else 43200
-        from main_control_service.jwt_util import encode as jwt_encode
-        token = jwt_encode(
-            {"sub": u["username"], "uid": u.get("id"), "role": u["site_role"],
-             "name": u.get("display_name") or u["username"]},
-            secret, ttl=int(ttl),
-        )
-        return JSONResponse(content={"token": token, "user": u})
+        auth_stats["login"]["total"] += 1
+        started = time.monotonic()
+        try:
+            # auth 是全局的 —— 取任一启用域的 mining_url 即可（验密码与域无关）。
+            mining_url = _first_enabled_mining_url(service)
+            if not mining_url:
+                _note_auth_5xx("login")
+                return JSONResponse(status_code=503, content={"detail": "mining backend unavailable"})
+            result = await verify_user_via_mining(
+                mining_url, request.app.state.internal_verify_secret, username, password,
+            )
+            if not result or not result.get("ok"):
+                return JSONResponse(status_code=401, content={"detail": "invalid credentials"})
+            u = result["user"]
+            auth_mw = _find_auth_mw(request)
+            secret = auth_mw.jwt_secret if auth_mw else ""
+            ttl = auth_mw.token_ttl_seconds if auth_mw else 43200
+            from main_control_service.jwt_util import encode as jwt_encode
+            token = jwt_encode(
+                {"sub": u["username"], "uid": u.get("id"), "role": u["site_role"],
+                 "name": u.get("display_name") or u["username"]},
+                secret, ttl=int(ttl),
+            )
+            return JSONResponse(content={"token": token, "user": u})
+        except HTTPException:
+            raise
+        except Exception:  # noqa: BLE001 — BUG-03 兜底：配置瞬时坏态等未知异常不再裸 500
+            logger.exception("auth.login failed username=%s", username)
+            _note_auth_5xx("login")
+            return JSONResponse(status_code=503, content={
+                "detail": "auth backend temporarily unavailable",
+                "code": "auth_upstream_unavailable",
+            })
+        finally:
+            auth_stats["login"]["total_seconds"] += time.monotonic() - started
 
     @app.post("/api/v1/auth/identify")
     async def identify(request: Request) -> Response:
         """登录第一步：按用户名判定模式（password/member/not_found）。透传 mining。"""
-        body = await request.json()
+        body = await _json_object(request)
         username = str(body.get("username") or "").strip()
         if not username:
             return JSONResponse(status_code=400, content={"detail": "username required"})
-        mining_url: str | None = None
-        for entry in service.list_domains():
-            if not entry.get("enabled", True):
-                continue
-            did = entry.get("domain_id")
-            if not did:
-                continue
-            try:
-                svcs = service.get_domain_services(did)
-            except Exception:  # noqa: BLE001
-                continue
-            if svcs.get("mining_url"):
-                mining_url = str(svcs["mining_url"]).rstrip("/")
-                break
-        if not mining_url:
-            return JSONResponse(status_code=503, content={"detail": "mining backend unavailable"})
-        result = await identify_via_mining(
-            mining_url, request.app.state.internal_verify_secret, username,
-        )
-        if result is None:
-            return JSONResponse(status_code=502, content={"detail": "mining identify unavailable"})
-        return JSONResponse(content=result)
+        auth_stats["identify"]["total"] += 1
+        started = time.monotonic()
+        try:
+            mining_url = _first_enabled_mining_url(service)
+            if not mining_url:
+                _note_auth_5xx("identify")
+                return JSONResponse(status_code=503, content={"detail": "mining backend unavailable"})
+            result = await identify_via_mining(
+                mining_url, request.app.state.internal_verify_secret, username,
+            )
+            if result is None:
+                _note_auth_5xx("identify")
+                return JSONResponse(status_code=502, content={"detail": "mining identify unavailable"})
+            return JSONResponse(content=result)
+        except HTTPException:
+            raise
+        except Exception:  # noqa: BLE001 — BUG-03 兜底：配置瞬时坏态等未知异常不再裸 500
+            logger.exception("auth.identify failed username=%s", username)
+            _note_auth_5xx("identify")
+            return JSONResponse(status_code=503, content={
+                "detail": "auth backend temporarily unavailable",
+                "code": "auth_upstream_unavailable",
+            })
+        finally:
+            auth_stats["identify"]["total_seconds"] += time.monotonic() - started
 
     @app.get("/api/v1/auth/me")
     def me(request: Request) -> Response:
@@ -647,6 +697,18 @@ def create_app(
                 except Exception as exc:  # noqa: BLE001 — best-effort fan-out
                     mining_hits.append({"url": base, "ok": False, "error": str(exc)})
         return {**result, "mining": mining_hits}
+
+    @app.get("/api/v1/admin/auth-stats")
+    def get_auth_stats() -> dict:
+        """BUG-03 可观测：login/identify 累计指标（进程内计数，重启归零）。"""
+        return {
+            name: {
+                **entry,
+                "avg_ms": round(entry["total_seconds"] / entry["total"] * 1000, 2)
+                if entry["total"] else 0.0,
+            }
+            for name, entry in auth_stats.items()
+        }
 
     return app
 
