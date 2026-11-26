@@ -1,6 +1,19 @@
 {
-  "current": "1.1.53",
+  "current": "1.1.54",
   "releases": [
+    {
+      "version": "1.1.54",
+      "released_at": "2026-11-26",
+      "title": "BUG-02–06 修复批次：上传白名单、登录韧性与限流、配置掩码、LLM 批量重放",
+      "changes": [
+        "BUG-02：上传入口扩展名白名单——kb 文档上传不再接受任意扩展名",
+        "BUG-03：登录入口对配置瞬时坏态的韧性——auth.yaml 半写/坏态不再爆发窗口内全员 500；附带 deploy-sync 勘误",
+        "BUG-04：登录失败锁定与 identify 限流——防爆破与账号枚举",
+        "BUG-05：系统配置敏感值掩码与写路径合并——读路径浏览器/admin JWT 拿掩码、内部调用拿原值；掩码回传按路径配对保留磁盘原值、新键填掩码 400；bootstrap.admin_password 播种后自动清理；jwt_secret 支持 ${VAR} 注入且未设置 fail-fast；配置读改纳入审计",
+        "BUG-06：LLM 死信/失败任务批量重放——POST /api/v1/tasks/retry-batch（task_ids 或 status/task_type/created_after+limit 圈定，dry_run 默认只预览，重排语义与单任务 retry 一致 + 状态守卫）；UI 任务详情补重试按钮、任务列表多选/本页批量重试；KB 侧按勘误维持现状（选择性挖掘已可用）",
+        "随 1.1.53 合并首发的 serving jar 重建（schema 校验和同步到 80 表）"
+      ]
+    },
     {
       "version": "1.1.53",
       "released_at": "2026-11-26",
