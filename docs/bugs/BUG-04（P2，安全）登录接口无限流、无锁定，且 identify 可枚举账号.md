@@ -94,3 +94,39 @@ location = /api/control-plane/api/v1/auth/login { limit_req zone=auth burst=5 no
 | `main_control_service/auth.py` | `_SKIP_PATHS`（identify/login 免鉴权） |
 | `main_control_service/ip_whitelist.py` | 现有 IP 白名单中间件（可作为限流注入点） |
 | `knowledge_mining/mining/kb/routes/auth.py` | `auth/verify`、`auth/identify` 实际校验实现 |
+
+## 7 修复记录（2026-11-26）
+
+按 §4 优先级实施 1/2/3（进程内，无外部依赖；多实例部署时需换 Redis/共享存储）：
+
+- 新增 `main_control_service/auth_rate_limit.py`：
+  - `LoginThrottle`：以 `(username.lower(), client_ip)` 为键，滑动失败窗口
+    （5 次/5 分钟）→ 锁定 5 分钟；成功即清零；锁定期间返回 429 + `Retry-After`，
+    **连正确密码也 429 且不回源 mining**（防借 429/401 差异探测窗口状态）。
+  - `FixedWindowRateLimiter`：identify 按客户端 IP 固定窗口限流（30 次/分钟），
+    超频 429 + `Retry-After`，同样不回源。
+  - 时钟用 `time.monotonic`（可注入假时钟）；键数超 4096 触发过期清理，
+    防伪造源 IP/随机用户名撑爆内存。
+- `main_control_service/main.py`：
+  - 客户端 IP 复用 IP 白名单的解析规则（仅可信代理的 X-Forwarded-For 左值，
+    其余取直连地址）——限流键不可经伪造 XFF 绕过或嫁祸他人。
+  - login：锁定检查在调 mining 之前；401 时计数并记 warning 日志
+    （`username/ip/结果`，不含密码；触发锁定时附 `lockout_engaged`）；
+    成功清零。
+  - identify：body 解析前先过 IP 限流。
+  - `auth_stats` 增加 `throttled_429` 计数（`GET /api/v1/admin/auth-stats` 可见；
+    429 不计入 total，不稀释 avg_ms）。
+- 测试：`main_control_service/tests/test_auth_rate_limit.py` 10 例，覆盖 §5
+  全部验证项（429+Retry-After、锁过期恢复、成功清零不误伤、按 username+IP
+  隔离、identify 超频、正常流程不受影响、auth-stats 计数）。本仓 starlette
+  0.37 的 TestClient 无 `client=` 参数，用 ASGI 包装改写 `scope["client"]`
+  模拟多来源 IP。
+
+未实施（说明）：
+
+- §4.2 的一次性 nonce 来源校验：identify 已按 IP 限流，正常登录流程不受影响，
+  nonce 增加登录页状态管理复杂度，暂不引入；
+- §4.4 nginx `limit_req` 兜底：`docker/nginx.conf` 是 server 块 include，
+  `limit_req_zone` 需 http 上下文（改动面在容器 nginx 主配置）；应用层限流
+  已覆盖登录与 identify，网关兜底留作后续可选项。
+- §1.4 的 `brand.adminContact` 展示策略：属产品/运维配置决策，未随本修复改动。
