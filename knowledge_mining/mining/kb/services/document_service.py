@@ -78,6 +78,48 @@ def resolve_upload_mime(filename: str, declared: str | None) -> str:
     return _EXTENSION_MIME.get(Path(filename).suffix.lower(), "application/octet-stream")
 
 
+#: 上传扩展名白名单（BUG-02）：从 MIME 回落表派生，两者永不脱节
+#: （.chm/.hdx 是正式支持的归档格式，见 UploadConfig.archive_exts_set）。
+_ALLOWED_EXTS = frozenset(_EXTENSION_MIME)
+
+#: 归档成员的资产格式豁免集（BUG-02 口径 2026-11-26）：真实 hdx/chm 包
+#: 天然内嵌图片与 CHM 索引部件——批次2b 决策"全部入库，含图片等资产"
+#: 继续成立。成员白名单 = 文档格式 ∪ 资产格式；可执行/任意二进制整包拒。
+_ARCHIVE_ASSET_EXTS = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".bmp", ".webp", ".ico",
+    ".hhc", ".hhk", ".hhp", ".css",
+})
+
+
+def _validate_extension(filename: str) -> None:
+    """上传入口前置白名单（BUG-02）：扩展名不在支持集合 → ValueError
+    （上传/替换/MCP 三条路由均映射 400）。此前未知扩展名回落
+    octet-stream 照常入库，只能等挖掘层失败兜底。"""
+    ext = Path(filename).suffix.lower()
+    if ext not in _ALLOWED_EXTS:
+        raise ValueError(
+            f"不支持的文件类型 {ext or '(无扩展名)'}；"
+            f"支持：{'、'.join(sorted(e[1:] for e in _ALLOWED_EXTS))}"
+        )
+
+
+def _reject_disallowed_members(extracted_files: list[str]) -> None:
+    """归档成员整包预检（BUG-02）：任一成员既非文档格式也非资产格式 →
+    整包 ValueError。须在建目录/入库之前调用，拒绝时不留任何残留；
+    越界成员在错误中列出（前 10 个 + 总数）。"""
+    member_ok = _ALLOWED_EXTS | _ARCHIVE_ASSET_EXTS
+    bad = [rel for rel in extracted_files
+           if Path(rel).suffix.lower() not in member_ok]
+    if bad:
+        shown = "、".join(bad[:10])
+        if len(bad) > 10:
+            shown += f" 等 {len(bad)} 个文件"
+        raise ValueError(
+            f"归档包含不支持的文件类型：{shown}；"
+            f"支持：{'、'.join(sorted(e[1:] for e in member_ok))}"
+        )
+
+
 #: 同步解压的成员数阈值（批次2c）：≤ 此值的归档在 HTTP 请求内同步完成，
 #: 超出走后台任务（网关 proxy_read_timeout 300s 内 200 成员有余量）。
 SYNC_ARCHIVE_MEMBERS = 200
@@ -338,6 +380,9 @@ class DocumentService:
         归档分支不透传 directory（网页在子文件夹传 ZIP 落到库根目录的现存
         bug，本方法即为修复点：服务层修一遍，网页+MCP 同时受益）。
         """
+        # BUG-02：上传入口前置白名单——网页与 MCP 同源收敛于此，未过审的
+        # 扩展名在触碰任何存储/DB 之前拒绝（路由映射 400）。
+        _validate_extension(filename)
         cfg = UploadConfig()
         # 归一一次，两个分支共用同一目录口径（upload_stream 内还会再归一，幂等）
         normalized_directory = _normalize_directory(directory_path)
@@ -734,6 +779,10 @@ class DocumentService:
                 if result.error:
                     raise ValueError(result.error)
                 extracted_files = result.extracted_files
+
+            # BUG-02：成员整包预检（文档格式 ∪ 资产格式）——置于建目录与
+            # 成员入库之前，拒绝时不留任何残留（整包 400，列出越界成员）。
+            _reject_disallowed_members(extracted_files)
 
             # 统一以压缩包名建总文件夹（批次2b 决策）：成员目录 = 包名/内部路径；
             # 58号§2.5：指定目录上传时前缀 base_directory → {目录}/{包名}/…
