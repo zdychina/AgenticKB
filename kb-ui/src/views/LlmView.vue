@@ -105,6 +105,20 @@
           <el-select v-model="filterStage" placeholder="阶段" size="default" clearable style="width: 140px">
             <el-option v-for="s in filterStages" :key="s" :label="s" :value="s" />
           </el-select>
+
+          <!-- 批量重试（BUG-06）：多选圈定，或筛选可重试状态后一键重试本页 -->
+          <el-button
+            v-if="retrySelectedCount > 0"
+            size="default" type="primary" plain
+            :loading="retryingBatch"
+            @click="retrySelected"
+          >重试选中（{{ retrySelectedCount }}）</el-button>
+          <el-button
+            v-if="showRetryPage && pageRetryCount > 0"
+            size="default" plain
+            :loading="retryingBatch"
+            @click="retryPage"
+          >重试本页全部（{{ pageRetryCount }}）</el-button>
         </div>
 
         <!-- Table -->
@@ -115,7 +129,9 @@
             class="kb-table"
             :header-cell-style="{ background: 'transparent' }"
             @row-click="goToTask"
+            @selection-change="onTaskSelectionChange"
           >
+            <el-table-column type="selection" width="42" />
             <el-table-column label="ID" width="110">
               <template #default="{ row }">
                 <span class="text-id">{{ row.id.slice(0, 8) }}</span>
@@ -398,7 +414,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { Refresh, Delete, Loading } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useDomainStore } from '@/stores/domain'
 import { useLlmApi } from '@/api/llm'
 import type { LlmTaskStats, LlmTask, LlmCleanupCounts, LlmCleanupResult } from '@/types'
@@ -606,8 +622,66 @@ async function loadAll() {
   await Promise.all([loadStats(), loadTasks(), loadTemplates()])
 }
 
-function goToTask(row: LlmTask) {
+function goToTask(row: LlmTask, _column: unknown, event: Event) {
+  // 勾选框点击会冒泡成 row-click——点了选择框就不进详情
+  if ((event.target as HTMLElement).closest('.el-checkbox')) return
   router.push(`/llm/${row.id}`)
+}
+
+// ─── 批量重试（BUG-06）──────────────────────────────────────────────
+// 圈定方式二选一：多选（重试选中）或筛选可重试状态后重试本页全部；
+// 服务端 UPDATE 带 status 守卫，圈定后状态漂移的任务计入 skipped。
+const RETRYABLE_STATUSES = ['failed', 'dead_letter', 'cancelled']
+
+const selectedTasks = ref<LlmTask[]>([])
+const retryingBatch = ref(false)
+
+function onTaskSelectionChange(rows: LlmTask[]) {
+  selectedTasks.value = rows
+}
+
+function isRetryable(t: LlmTask): boolean {
+  return RETRYABLE_STATUSES.includes(t.status)
+}
+
+const retrySelectedCount = computed(() => selectedTasks.value.filter(isRetryable).length)
+const showRetryPage = computed(() => RETRYABLE_STATUSES.includes(filterStatus.value))
+const pageRetryCount = computed(() => tasks.value.filter(isRetryable).length)
+
+async function confirmAndRetryBatch(ids: string[]) {
+  try {
+    await ElMessageBox.confirm(
+      `将重新排队 ${ids.length} 个任务（重试次数将清零），确定继续？`,
+      '批量重试',
+      { type: 'warning', confirmButtonText: '重 试', cancelButtonText: '取 消' },
+    )
+  } catch {
+    return
+  }
+  retryingBatch.value = true
+  try {
+    const r = await llmApi.retryTasksBatch({ task_ids: ids, dry_run: false })
+    ElMessage.success(
+      r.skipped > 0
+        ? `已重新排队 ${r.requeued} 个任务，${r.skipped} 个因状态变化跳过`
+        : `已重新排队 ${r.requeued} 个任务`,
+    )
+    await Promise.all([loadStats(true), loadTasks(true)])
+  } catch (e) {
+    ElMessage.error(`批量重试失败：${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    retryingBatch.value = false
+  }
+}
+
+function retrySelected() {
+  const ids = selectedTasks.value.filter(isRetryable).map((t) => t.id)
+  if (ids.length) confirmAndRetryBatch(ids)
+}
+
+function retryPage() {
+  const ids = tasks.value.filter(isRetryable).map((t) => t.id)
+  if (ids.length) confirmAndRetryBatch(ids)
 }
 
 // ── Retention cleanup dialog ────────────────────────────────────────

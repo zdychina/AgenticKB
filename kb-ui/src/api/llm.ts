@@ -47,6 +47,28 @@ export function useLlmApi() {
       await client.post(`/api/v1/tasks/${taskId}/cancel`)
     },
 
+    async retryTask(taskId: string): Promise<void> {
+      await client.post(`/api/v1/tasks/${taskId}/retry`)
+    },
+
+    /**
+     * POST /api/v1/tasks/retry-batch — 批量重放终态任务（BUG-06）。
+     * task_ids 圈定（多选/本页）或 status/task_type/created_after+limit 筛选圈定；
+     * dry_run=true 只回 matched/task_ids 预览，不动库。
+     */
+    async retryTasksBatch(payload: {
+      task_ids?: string[]
+      status?: string[]
+      task_type?: string
+      created_after?: string
+      limit?: number
+      dry_run?: boolean
+    }): Promise<{ dry_run: boolean; matched: number; requeued: number; skipped: number; task_ids: string[] }> {
+      const { data } = await client.post('/api/v1/tasks/retry-batch', payload)
+      const resp = data as Record<string, unknown>
+      return (resp.data ?? resp) as { dry_run: boolean; matched: number; requeued: number; skipped: number; task_ids: string[] }
+    },
+
     async getTemplates(params?: { domain?: string }): Promise<Record<string, unknown>[]> {
       try {
         const { data } = await client.get('/api/v1/templates', { params })

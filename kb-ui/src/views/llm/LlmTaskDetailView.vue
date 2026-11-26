@@ -13,6 +13,14 @@
       </div>
       <div class="task-detail__header-right">
         <el-button
+          v-if="task && isRetryableStatus(task.status)"
+          size="small"
+          type="primary"
+          plain
+          @click="handleRetry"
+          :loading="retrying"
+        >重试任务</el-button>
+        <el-button
           v-if="task && (task.status === 'queued' || task.status === 'running')"
           size="small"
           type="danger"
@@ -380,6 +388,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useLlmApi } from '@/api/llm'
 import { usePolling } from '@/composables/usePolling'
 import { useDomainStore } from '@/stores/domain'
@@ -603,6 +612,26 @@ async function handleCancel() {
     await loadAll()
   } finally {
     cancelling.value = false
+  }
+}
+
+// ─── 重试（BUG-06）：终态 failed/dead_letter/cancelled 可重排，语义与后端
+// 单任务 retry 一致（queued + 重试次数归零）。重排后恢复轮询跟踪。 ───
+const retrying = ref(false)
+
+function isRetryableStatus(status?: string | null): boolean {
+  return status === 'failed' || status === 'dead_letter' || status === 'cancelled'
+}
+
+async function handleRetry() {
+  retrying.value = true
+  try {
+    await llmApi.retryTask(props.taskId)
+    ElMessage.success('任务已重新排队')
+    await loadAll()
+    startPolling()
+  } finally {
+    retrying.value = false
   }
 }
 

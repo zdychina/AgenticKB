@@ -121,6 +121,22 @@ class BatchStatusRequest(BaseModel):
     include_results: bool = True
 
 
+class RetryBatchRequest(BaseModel):
+    """Batch replay of terminal LLM tasks (BUG-06).
+
+    ids 模式：task_ids 圈定（UI 多选/本页）；筛选模式：status / task_type /
+    created_after + limit 圈定（运维批量重放路径）。dry_run 默认 True——
+    漏传字段只做数量预览，绝不重排。
+    """
+
+    task_ids: list[str] | None = Field(default=None, min_length=1, max_length=256)
+    status: list[str] = Field(default_factory=lambda: ["dead_letter", "failed"])
+    task_type: str | None = None
+    created_after: str | None = None
+    limit: int = Field(default=500, ge=1, le=1000)
+    dry_run: bool = True
+
+
 class CleanupRequest(BaseModel):
     """Admin-triggered retention cleanup for agent_llm_* audit tables.
 
