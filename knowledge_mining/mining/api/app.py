@@ -108,12 +108,22 @@ async def lifespan(app: FastAPI):
     app.state.db_config = cfg
 
     # Phase 2：拉 auth.yaml 并幂等播种首 admin（best-effort，控制面不可达不阻断启动）。
-    from knowledge_mining.mining.infra.control_plane import fetch_auth_config
+    from knowledge_mining.mining.infra.control_plane import (
+        consume_bootstrap_password,
+        fetch_auth_config,
+    )
     from knowledge_mining.mining.kb.bootstrap import seed_initial_admin
     try:
         _auth_cfg = fetch_auth_config(force=True)
         _admin_pw = (_auth_cfg.get("bootstrap") or {}).get("admin_password") or ""
-        await seed_initial_admin(pool, admin_password=_admin_pw)
+        _seed_status = await seed_initial_admin(pool, admin_password=_admin_pw)
+        # BUG-05：密码是真实非占位值即消费（含"已有 admin、播种跳过"的场景，
+        # 防 --force-config 重置后密码长期滞留 auth.yaml）；best-effort。
+        if _admin_pw and _seed_status != "skipped_placeholder":
+            if not consume_bootstrap_password():
+                logger.warning(
+                    "bootstrap: auth.yaml 的 admin_password 已使用但未能从控制面移除"
+                    "（consume-bootstrap 失败），请人工删除该字段")
     except Exception as exc:  # noqa: BLE001
         logger.warning("auth bootstrap skipped: %s", exc)
 

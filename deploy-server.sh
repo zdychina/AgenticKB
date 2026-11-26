@@ -209,15 +209,22 @@ ensure_auth_config_secrets() {
 
     [ -L "$AUTH_CONFIG_PATH" ] && die "认证配置不能是符号链接：${AUTH_CONFIG_PATH}"
     [ -f "$AUTH_CONFIG_PATH" ] || die "缺少认证配置：${AUTH_CONFIG_PATH}"
-    for key in jwt_secret internal_verify_secret initialize_on_deploy admin_password; do
-        grep -Eq "^[[:space:]]*${key}:" "$AUTH_CONFIG_PATH" || \
-            die "认证配置缺少 ${key} 字段：${AUTH_CONFIG_PATH}"
-    done
     bootstrap_initialization="$(read_auth_config_value "initialize_on_deploy")"
     case "$bootstrap_initialization" in
         true|false) ;;
         *) die "bootstrap.initialize_on_deploy 必须为 true 或 false。" ;;
     esac
+    # BUG-05：admin_password 仅在首次初始化（initialize_on_deploy=true）时要求/
+    # 生成——播种成功后 mining 会把它从 auth.yaml 自动移除（consume-bootstrap），
+    # 后续部署不得因其缺失而 die，也不得重新生成一个永久滞留的密码。
+    if [ "$bootstrap_initialization" = "true" ]; then
+        grep -Eq "^[[:space:]]*admin_password:" "$AUTH_CONFIG_PATH" || \
+            die "认证配置缺少 admin_password 字段：${AUTH_CONFIG_PATH}"
+    fi
+    for key in jwt_secret internal_verify_secret initialize_on_deploy; do
+        grep -Eq "^[[:space:]]*${key}:" "$AUTH_CONFIG_PATH" || \
+            die "认证配置缺少 ${key} 字段：${AUTH_CONFIG_PATH}"
+    done
     chmod 600 -- "$AUTH_CONFIG_PATH"
     set_auth_secret "jwt_secret" 32
     set_auth_secret "internal_verify_secret" 32

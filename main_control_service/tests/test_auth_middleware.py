@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from main_control_service.auth import AuthMiddleware, _has_unsafe_proxy_path
@@ -55,6 +55,15 @@ def _mw_app(
 
     @app.get("/api/v1/system/cfg/raw")
     def get_cfg():
+        return {"ok": 1}
+
+    @app.get("/api/v1/system/probe-internal")
+    def probe_internal(request: Request):
+        # BUG-05：探测 internal_call 标记（掩码开关：内部调用拿原值）。
+        return {"internal": getattr(request.state, "internal_call", False)}
+
+    @app.post("/api/v1/system/auth/consume-bootstrap")
+    def probe_consume(request: Request):
         return {"ok": 1}
 
     @app.get("/api/v1/domains")
@@ -530,3 +539,82 @@ def test_llm_effective_endpoint_reachable_via_internal_secret(tmp_path):
     with TestClient(_llm_domain_routes(_mw_app(tmp_path))) as c:
         assert c.get(path).status_code == 401
         assert c.get(path, headers={"X-Internal-Auth": "test-ivs"}).status_code == 200
+
+
+# ----------------------------------------------------------------------
+# BUG-05：disabled 模式内部头识别 / ${VAR} 注入 / consume-bootstrap scope
+# ----------------------------------------------------------------------
+
+
+def test_disabled_mode_internal_header_sets_flag(tmp_path):
+    """enabled=false 时带正确 X-Internal-Auth 的 GET 同样打 internal_call
+    标记（拿未掩码配置）；无头不带标记。不放行任何权限——disabled 本就放行。"""
+    app = _mw_app(tmp_path, "enabled: false\njwt_secret: test-secret\n"
+                            "internal_verify_secret: test-ivs\n")
+    with TestClient(app) as c:
+        r1 = c.get("/api/v1/system/probe-internal",
+                   headers={"X-Internal-Auth": "test-ivs"})
+        r2 = c.get("/api/v1/system/probe-internal")
+        r3 = c.get("/api/v1/system/probe-internal",
+                   headers={"X-Internal-Auth": "wrong"})
+    assert r1.json() == {"internal": True}
+    assert r2.json() == {"internal": False}
+    assert r3.json() == {"internal": False}
+
+
+def test_disabled_mode_empty_secret_never_matches(tmp_path):
+    """空 internal_verify_secret 时内部头永不匹配（镜像 fail-closed 语义）。"""
+    app = _mw_app(tmp_path, "enabled: false\njwt_secret: test-secret\n"
+                            "internal_verify_secret: \"\"\n")
+    with TestClient(app) as c:
+        r = c.get("/api/v1/system/probe-internal",
+                  headers={"X-Internal-Auth": ""})
+        assert r.json() == {"internal": False}
+
+
+def test_consume_bootstrap_post_in_internal_scope(tmp_path):
+    """POST consume-bootstrap 凭 X-Internal-Auth 放行；无凭证 401；
+    PUT 不在 scope 内（无凭证仍 401，带头也不放行 PUT）。"""
+    with TestClient(_mw_app(tmp_path)) as c:
+        assert c.post("/api/v1/system/auth/consume-bootstrap").status_code == 401
+        ok = c.post("/api/v1/system/auth/consume-bootstrap",
+                    headers={"X-Internal-Auth": "test-ivs"})
+        assert ok.status_code == 200
+        put_no_cred = c.put("/api/v1/system/cfg/raw")
+        assert put_no_cred.status_code == 401
+        put_header = c.put("/api/v1/system/cfg/raw",
+                           headers={"X-Internal-Auth": "test-ivs"})
+        assert put_header.status_code == 401  # PUT 不进 internal scope
+
+
+def test_jwt_secret_env_ref_expands(tmp_path, monkeypatch):
+    """jwt_secret 支持整体 ${VAR} 注入：展开后的值用于验签。"""
+    monkeypatch.setenv("TEST_JWT_VAR", "env-resolved-secret-0123456789")
+    app = _mw_app(tmp_path, _AUTH_YAML.replace(
+        "jwt_secret: test-secret", "jwt_secret: ${TEST_JWT_VAR}"))
+    with TestClient(app) as c:
+        r = c.get("/api/v1/me", headers={
+            "Authorization": f"Bearer {_token('member', 'env-resolved-secret-0123456789')}"})
+        assert r.status_code == 200
+        # 引用字面量当密钥签的 token 无效
+        bad = c.get("/api/v1/me", headers={
+            "Authorization": f"Bearer {_token('member', '${TEST_JWT_VAR}')}"})
+        assert bad.status_code == 401
+
+
+def test_jwt_secret_env_ref_missing_fails_closed(tmp_path, monkeypatch):
+    """变量未设置 → 空 secret → secrets_valid=False → 503（fail-fast）。"""
+    monkeypatch.delenv("TEST_JWT_VAR", raising=False)
+    app = _mw_app(tmp_path, _AUTH_YAML.replace(
+        "jwt_secret: test-secret", "jwt_secret: ${TEST_JWT_VAR}"))
+    with TestClient(app) as c:
+        assert c.get("/api/v1/me").status_code == 503
+
+
+def test_jwt_secret_malformed_ref_fails_closed(tmp_path, monkeypatch):
+    """不支持的引用形态（如 ${VAR:-fallback}）归零而非当字面量密钥。"""
+    monkeypatch.setenv("TEST_JWT_VAR", "whatever")
+    app = _mw_app(tmp_path, _AUTH_YAML.replace(
+        "jwt_secret: test-secret", "jwt_secret: ${TEST_JWT_VAR:-fallback}"))
+    with TestClient(app) as c:
+        assert c.get("/api/v1/me").status_code == 503

@@ -45,6 +45,29 @@ def _get_raw(service_name: str, *, timeout: float = 5.0) -> dict[str, Any]:
     return yaml.safe_load(resp.text) or {}
 
 
+def consume_bootstrap_password(*, timeout: float = 5.0) -> bool:
+    """BUG-05：通知控制面删除 auth.yaml 的 bootstrap.admin_password 行。
+
+    播种链确认该密码为真实非占位值后调用（best-effort：2xx → True，
+    任何异常/非 2xx → False，调用方只记日志不重试）。覆盖两种场景：
+    - 首次播种成功；
+    - --force-config 重置 auth.yaml 后库里已有可登录 admin（播种跳过），
+      密码若不消费将永久滞留配置文件。
+    """
+    endpoint = f"{CONTROL_PLANE_BASE_URL}/api/v1/system/auth/consume-bootstrap"
+    try:
+        resp = httpx.post(
+            endpoint,
+            headers=control_plane_internal_headers(),
+            timeout=timeout,
+            proxy=None,
+            trust_env=False,
+        )
+    except httpx.HTTPError:
+        return False
+    return 200 <= resp.status_code < 300
+
+
 def fetch_mining_service_config(*, force: bool = False) -> dict[str, Any]:
     """拉取并缓存挖掘服务配置（mining.yaml）。"""
     global _service_config_cache

@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from main_control_service.config_masking import MASK_PREFIX
 from main_control_service.main import create_app
 
 _UI_YAML = """\
@@ -133,6 +134,10 @@ def _llm_client(tmp_path: Path) -> TestClient:
     return TestClient(create_app(config_dir=tmp_path))
 
 
+#: BUG-05：内部调用（X-Internal-Auth）拿原值，浏览器调用拿掩码值——双跑断言。
+_INTERNAL = {"X-Internal-Auth": "test-internal"}
+
+
 def test_llm_domain_override_crud_roundtrip(tmp_path: Path) -> None:
     override = (
         "provider:\n"
@@ -168,10 +173,16 @@ def test_llm_domain_override_crud_roundtrip(tmp_path: Path) -> None:
         assert "g-active" in eff["provider"]["models"]
         assert "odn-chat" in eff["provider"]["models"]
         assert eff["rerank"]["model"] == "rerank-odn"
-        assert eff["rerank"]["api_key"] == "rk-global"   # 未覆盖字段继承全局
+        # BUG-05：浏览器读 → 密钥掩码；内部头读 → 原值（mining/llm_service 消费链）
+        assert eff["rerank"]["api_key"] == MASK_PREFIX + "obal"  # rk-global
         assert eff["embedding"]["model"] == "emb-odn"     # 62号二期：embedding 按域
-        assert eff["embedding"]["api_key"] == "ek-global"  # 未覆盖字段继承全局
+        assert eff["embedding"]["api_key"] == MASK_PREFIX + "obal"  # ek-global → 掩码
         assert eff["embedding"]["dimensions"] == 1024     # dimensions 锁全局
+
+        eff_int = c.get("/api/v1/system/llm_service/effective/odn",
+                        headers=_INTERNAL).json()
+        assert eff_int["rerank"]["api_key"] == "rk-global"   # 未覆盖字段继承全局
+        assert eff_int["embedding"]["api_key"] == "ek-global"
 
         r = c.delete("/api/v1/system/llm_service/domains/odn/raw")
         assert r.status_code == 200 and r.json()["deleted"] is True

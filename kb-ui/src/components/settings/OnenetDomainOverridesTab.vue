@@ -73,7 +73,7 @@
                   class="onenet-overrides-tab__control"
                 />
                 <div class="onenet-overrides-tab__field-hint">
-                  留空继承全局；只改 app_id 不改 token 时，merge 后仍用全局 token
+                  显示 •••••• 掩码 = 保留本域现有 token；清空 = 删除本域覆盖、回落全局；输入新值 = 覆盖
                 </div>
               </el-form-item>
 

@@ -29,6 +29,9 @@
               保存
             </el-button>
           </div>
+          <div class="system-config-tab__llm-hint system-config-tab__mask-hint">
+            敏感值（密钥/密码/token 等）以 •••••• 掩码显示：<strong>原样保存即保留原值</strong>，输入新值即轮换；新增或改名的键必须填真实值，不能填掩码。
+          </div>
           <div
             v-if="store.selectedSystemConfigName === 'llm_service'"
             class="system-config-tab__llm-hint"
@@ -53,10 +56,20 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { isAxiosError } from 'axios'
 import { useControlPlaneStore } from '@/stores/controlPlane'
 import YamlEditor from '@/components/common/YamlEditor.vue'
 
 const store = useControlPlaneStore()
+
+function errDetail(e: unknown): string {
+  if (isAxiosError(e)) {
+    const d = e.response?.data as { detail?: unknown } | string | undefined
+    if (typeof d === 'string' && d.trim()) return d.trim()
+    if (d && typeof d === 'object' && d.detail) return String(d.detail)
+  }
+  return e instanceof Error ? e.message : '未知错误'
+}
 
 async function handleSave() {
   try {
@@ -72,8 +85,9 @@ async function handleSave() {
     } else {
       ElMessage.success('已保存')
     }
-  } catch {
-    ElMessage.error('保存失败')
+  } catch (e) {
+    // 400 报文（如掩码值无法恢复）透传给用户，而不是笼统的"保存失败"
+    ElMessage.error(`保存失败：${errDetail(e)}`)
   }
 }
 
@@ -144,6 +158,11 @@ onMounted(() => store.loadSystemConfigs())
   background: rgba(64, 158, 255, 0.05);
   border: 1px solid rgba(64, 158, 255, 0.15);
   border-radius: 6px;
+}
+
+.system-config-tab__mask-hint {
+  background: rgba(230, 162, 60, 0.06);
+  border-color: rgba(230, 162, 60, 0.25);
 }
 
 .system-config-tab__editor-wrap {

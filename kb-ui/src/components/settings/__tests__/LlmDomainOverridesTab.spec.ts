@@ -186,6 +186,23 @@ describe('LLM 域覆盖 tab', () => {
     expect(vm.rerankApiKey).toBe('rk-1')
   })
 
+  it('BUG-05：后端掩码值预填密码框，改其他字段保存时掩码原样回传（服务端合并保留原值）', async () => {
+    const w = mountTab()
+    await flushPromises()
+    const vm = w.vm as unknown as TabVm
+    await vm.select('odn')
+    const maskedYaml =
+      'rerank:\n  model: rerank-pro\n  base_url: https://rk.example/\n  api_key: "••••••rk-1"\n'
+    vm.text = maskedYaml
+    expect(vm.rerankApiKey).toBe('••••••rk-1')  // 掩码预填而非真实密钥
+    vm.rerankModel = 'rerank-odn'
+    // js-yaml 回写会去掉多余引号（语义等价）；兄弟键编辑不动掩码值
+    expect(vm.text).toContain('api_key: ••••••rk-1')
+    await vm.handleSave()
+    expect(api.saveLlmDomainOverrideRaw).toHaveBeenCalledWith(
+      'odn', expect.stringContaining('api_key: ••••••rk-1'))
+  })
+
   it('embedding 段无差异的保存不弹确认框，直接走 PUT raw 并按热加载成功回显', async () => {
     const w = mountTab()
     await flushPromises()

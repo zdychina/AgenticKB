@@ -12,6 +12,8 @@ import httpx
 import yaml
 from fastapi import HTTPException
 
+from main_control_service.config_masking import consume_bootstrap_line
+
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +327,20 @@ class YamlConfigService:
         if not system_dir.exists():
             return []
         return sorted(p.stem for p in system_dir.glob("*.yaml"))
+
+    def consume_bootstrap_admin_password(self) -> bool:
+        """BUG-05：播种成功后删除 auth.yaml 的 bootstrap.admin_password 行。
+
+        行级删除保留注释/结构；文件或键不存在 → False（幂等）。
+        """
+        path = self.config_dir / "system" / "auth.yaml"
+        if not path.exists():
+            return False
+        text = path.read_text(encoding="utf-8")
+        new_text, removed = consume_bootstrap_line(text)
+        if removed:
+            self._save_yaml_text(path, new_text)
+        return removed
 
     # ------------------------------------------------------------------
     # LLM domain overrides (62号二期：chat/rerank/embedding 按域覆盖，

@@ -138,6 +138,19 @@ describe('一张网域覆盖 tab', () => {
     expect(vm.appId).toBe('odn-app')
   })
 
+  it('BUG-05：后端掩码的 static_token 预填密码框，原样保存回传掩码（服务端合并保留原值）', async () => {
+    const w = mountTab()
+    await flushPromises()
+    const vm = w.vm as unknown as TabVm
+    await vm.select('odn')
+    const maskedYaml = 'app_id: odn-app\nstatic_token: "••••••l-tok"\n'
+    vm.text = maskedYaml
+    expect(vm.staticToken).toBe('••••••l-tok')  // 掩码预填而非真实密钥
+    expect(vm.appId).toBe('odn-app')
+    await vm.handleSave()
+    expect(api.saveOnenetDomainOverrideRaw).toHaveBeenCalledWith('odn', maskedYaml)
+  })
+
   it('YAML 先写的调优键，表单改凭据时保留', async () => {
     const w = mountTab()
     await flushPromises()

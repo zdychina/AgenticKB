@@ -4,14 +4,23 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
+import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from main_control_service import audit
 from main_control_service.auth import AuthMiddleware, SiteAdminValidator
 from main_control_service.auth_rate_limit import FixedWindowRateLimiter, LoginThrottle
 from main_control_service.config import MainControlSettings
+from main_control_service.config_masking import (
+    MaskMergeError,
+    mask_structured,
+    mask_yaml_text,
+    merge_masked_yaml,
+)
 from main_control_service.ip_whitelist import IpWhitelistMiddleware
 from main_control_service.proxy import (
     create_proxy_client,
@@ -27,6 +36,64 @@ from main_control_service.release_info import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# BUG-05：配置敏感值掩码（读）+ 掩码回传合并（写）。
+# 掩码归 handler 层：service 返回原值，内部调用方（X-Internal-Auth，
+# request.state.internal_call）拿原值，浏览器/admin JWT 拿掩码值。
+# ---------------------------------------------------------------------------
+
+def _browser_masked(request: Request) -> bool:
+    return not getattr(request.state, "internal_call", False)
+
+
+def _masked_raw_response(request: Request, text: str, label: str) -> Response:
+    if _browser_masked(request):
+        try:
+            text, masked_paths = mask_yaml_text(text)
+        except yaml.YAMLError:
+            # 宁可拒读不可漏掩：文件本身坏了让管理员去服务器修。
+            raise HTTPException(status_code=503, detail="config_file_unparsable")
+        except MaskMergeError:
+            raise HTTPException(status_code=503, detail="config_masking_unsupported")
+        audit.log_config_read(request, masked_paths, label)
+    return Response(content=text, media_type="text/yaml")
+
+
+def _masked_json(request: Request, obj: Any, label: str) -> Any:
+    if _browser_masked(request):
+        obj, masked_paths = mask_structured(obj)
+        audit.log_config_read(request, masked_paths, label)
+    return obj
+
+
+def _merge_masked_or_400(incoming: str, disk_text: str) -> tuple[str, list[str]]:
+    """PUT 写路径合并：掩码回传 → 恢复磁盘原值；无法恢复 → 400（fail-closed）。"""
+    try:
+        return merge_masked_yaml(incoming, disk_text)
+    except MaskMergeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"masked_value_not_restorable: {exc.reason}: "
+                f"{', '.join(exc.paths) if exc.paths else '(root)'}"
+            ),
+        ) from exc
+    except yaml.YAMLError as exc:
+        # 与 _save_yaml_text 同形态报文：非法 YAML 在合并层就 400。
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {exc}") from exc
+
+
+def _disk_text_or_empty(read_disk) -> str:
+    """读当前磁盘文本做合并基底；新建文件（404）返回空串——空基底上
+    任何掩码值都无原值可恢复，merge 会对其 400（fail-closed）。"""
+    try:
+        return read_disk()
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        return ""
 
 
 def _find_auth_mw(request: Request) -> AuthMiddleware | None:
@@ -345,27 +412,45 @@ def create_app(
         return {"items": service.list_system_configs()}
 
     @app.get("/api/v1/system/{service_name}")
-    def get_system_config(service_name: str) -> dict:
-        return service.get_system_config(service_name)
+    def get_system_config(service_name: str, request: Request) -> dict:
+        return _masked_json(
+            request, service.get_system_config(service_name),
+            f"/api/v1/system/{service_name}")
 
     @app.get("/api/v1/system/{service_name}/raw")
-    def get_system_config_raw(service_name: str) -> Response:
-        return Response(content=service.get_system_config_yaml(service_name), media_type="text/yaml")
+    def get_system_config_raw(service_name: str, request: Request) -> Response:
+        return _masked_raw_response(
+            request, service.get_system_config_yaml(service_name),
+            f"/api/v1/system/{service_name}/raw")
 
     @app.put("/api/v1/system/{service_name}/raw")
     async def update_system_config_raw(service_name: str, request: Request) -> dict:
         body = await request.body()
         text = body.decode("utf-8")
+        disk_text = _disk_text_or_empty(
+            lambda: service.get_system_config_yaml(service_name))
+        merged, preserved = _merge_masked_or_400(text, disk_text)
+        audit.log_config_write(
+            request, preserved, f"/api/v1/system/{service_name}/raw")
         if service_name == "onenet":
             # 结构校验（键白名单+类型）——修复此前盲写、写坏后 mining 静默 503 的暗病。
-            service.validate_onenet_global_yaml(text)
-        service.update_system_config_yaml(service_name, text)
-        out: dict = {"ok": True}
+            # 校验放在 merge 之后：校验器看到的是恢复原值后的最终落盘文本。
+            service.validate_onenet_global_yaml(merged)
+        service.update_system_config_yaml(service_name, merged)
+        out: dict = {"ok": True, "preserved": preserved}
         if service_name == "llm_service":
             # 保存即生效：通知 llm_service 热加载（失败不影响保存，结果回显 UI）。
             out["llm_reload"] = await service.notify_llm_reload(
                 getattr(request.app.state, "internal_verify_secret", ""))
         return out
+
+    @app.post("/api/v1/system/auth/consume-bootstrap")
+    def consume_bootstrap_admin_password(request: Request) -> dict:
+        """BUG-05：mining 播种成功后调用（X-Internal-Auth），删除 auth.yaml 的
+        bootstrap.admin_password 行。仅限内部调用——admin JWT 也不行。"""
+        if not getattr(request.state, "internal_call", False):
+            raise HTTPException(status_code=403, detail="internal_only")
+        return {"ok": True, "removed": service.consume_bootstrap_admin_password()}
 
     # ------------------------------------------------------------------
     # LLM domain overrides — 62号第一期：chat+rerank 按域覆盖。
@@ -378,17 +463,22 @@ def create_app(
         return {"items": service.list_llm_domain_overrides()}
 
     @app.get("/api/v1/system/llm_service/domains/{domain_id}/raw")
-    def get_llm_domain_override_raw(domain_id: str) -> Response:
-        return Response(
-            content=service.get_llm_domain_override_yaml(domain_id),
-            media_type="text/yaml",
-        )
+    def get_llm_domain_override_raw(domain_id: str, request: Request) -> Response:
+        return _masked_raw_response(
+            request, service.get_llm_domain_override_yaml(domain_id),
+            f"/api/v1/system/llm_service/domains/{domain_id}/raw")
 
     @app.put("/api/v1/system/llm_service/domains/{domain_id}/raw")
     async def update_llm_domain_override_raw(domain_id: str, request: Request) -> dict:
         body = await request.body()
-        service.update_llm_domain_override_yaml(domain_id, body.decode("utf-8"))
-        return {"ok": True, "llm_reload": await service.notify_llm_reload(
+        disk_text = _disk_text_or_empty(
+            lambda: service.get_llm_domain_override_yaml(domain_id))
+        merged, preserved = _merge_masked_or_400(body.decode("utf-8"), disk_text)
+        audit.log_config_write(
+            request, preserved,
+            f"/api/v1/system/llm_service/domains/{domain_id}/raw")
+        service.update_llm_domain_override_yaml(domain_id, merged)
+        return {"ok": True, "preserved": preserved, "llm_reload": await service.notify_llm_reload(
             getattr(request.app.state, "internal_verify_secret", ""))}
 
     @app.delete("/api/v1/system/llm_service/domains/{domain_id}/raw")
@@ -402,8 +492,10 @@ def create_app(
         return out
 
     @app.get("/api/v1/system/llm_service/effective/{domain_id}")
-    def get_llm_effective_config(domain_id: str) -> dict:
-        return service.llm_effective_config(domain_id)
+    def get_llm_effective_config(domain_id: str, request: Request) -> dict:
+        return _masked_json(
+            request, service.llm_effective_config(domain_id),
+            f"/api/v1/system/llm_service/effective/{domain_id}")
 
     # ------------------------------------------------------------------
     # Onenet domain overrides —— 一张网凭据按域差异（镜像 62号 LLM 域覆盖）。
@@ -416,25 +508,32 @@ def create_app(
         return {"items": service.list_onenet_domain_overrides()}
 
     @app.get("/api/v1/system/onenet/domains/{domain_id}/raw")
-    def get_onenet_domain_override_raw(domain_id: str) -> Response:
-        return Response(
-            content=service.get_onenet_domain_override_yaml(domain_id),
-            media_type="text/yaml",
-        )
+    def get_onenet_domain_override_raw(domain_id: str, request: Request) -> Response:
+        return _masked_raw_response(
+            request, service.get_onenet_domain_override_yaml(domain_id),
+            f"/api/v1/system/onenet/domains/{domain_id}/raw")
 
     @app.put("/api/v1/system/onenet/domains/{domain_id}/raw")
     async def update_onenet_domain_override_raw(domain_id: str, request: Request) -> dict:
         body = await request.body()
-        service.update_onenet_domain_override_yaml(domain_id, body.decode("utf-8"))
-        return {"ok": True}
+        disk_text = _disk_text_or_empty(
+            lambda: service.get_onenet_domain_override_yaml(domain_id))
+        merged, preserved = _merge_masked_or_400(body.decode("utf-8"), disk_text)
+        audit.log_config_write(
+            request, preserved,
+            f"/api/v1/system/onenet/domains/{domain_id}/raw")
+        service.update_onenet_domain_override_yaml(domain_id, merged)
+        return {"ok": True, "preserved": preserved}
 
     @app.delete("/api/v1/system/onenet/domains/{domain_id}/raw")
     def delete_onenet_domain_override(domain_id: str) -> dict:
         return {"ok": True, "deleted": service.delete_onenet_domain_override(domain_id)}
 
     @app.get("/api/v1/system/onenet/effective/{domain_id}")
-    def get_onenet_effective_config(domain_id: str) -> dict:
-        return service.onenet_effective_config(domain_id)
+    def get_onenet_effective_config(domain_id: str, request: Request) -> dict:
+        return _masked_json(
+            request, service.onenet_effective_config(domain_id),
+            f"/api/v1/system/onenet/effective/{domain_id}")
 
     # ------------------------------------------------------------------
     # Domains — JSON list + YAML text CRUD
@@ -509,12 +608,15 @@ def create_app(
     @app.get("/api/v1/domains/{domain_id}")
     async def get_domain(domain_id: str, request: Request) -> dict:
         await require_domain_access(request, domain_id)
-        return service.get_domain(domain_id)
+        return _masked_json(
+            request, service.get_domain(domain_id), f"/api/v1/domains/{domain_id}")
 
     @app.get("/api/v1/domains/{domain_id}/raw")
     async def get_domain_raw(domain_id: str, request: Request) -> Response:
         await require_domain_access(request, domain_id)
-        return Response(content=service.get_domain_yaml(domain_id), media_type="text/yaml")
+        return _masked_raw_response(
+            request, service.get_domain_yaml(domain_id),
+            f"/api/v1/domains/{domain_id}/raw")
 
     @app.post("/api/v1/domains")
     async def create_domain(request: Request) -> dict:
@@ -527,9 +629,12 @@ def create_app(
     @app.put("/api/v1/domains/{domain_id}/raw")
     async def update_domain_raw(domain_id: str, request: Request) -> dict:
         body = await request.body()
-        text = body.decode("utf-8")
-        service.update_domain_yaml(domain_id, text)
-        return {"ok": True}
+        merged, preserved = _merge_masked_or_400(
+            body.decode("utf-8"), service.get_domain_yaml(domain_id))
+        audit.log_config_write(
+            request, preserved, f"/api/v1/domains/{domain_id}/raw")
+        service.update_domain_yaml(domain_id, merged)
+        return {"ok": True, "preserved": preserved}
 
     @app.delete("/api/v1/domains/{domain_id}")
     async def delete_domain(domain_id: str, request: Request) -> dict:
@@ -574,8 +679,8 @@ def create_app(
     # ------------------------------------------------------------------
 
     @app.get("/api/v1/serving-config")
-    def get_serving_config() -> dict:
-        return service.get_serving_config()
+    def get_serving_config(request: Request) -> dict:
+        return _masked_json(request, service.get_serving_config(), "/api/v1/serving-config")
 
     # ------------------------------------------------------------------
     # Service logs — read-only tail of /app/logs (written by supervisor)

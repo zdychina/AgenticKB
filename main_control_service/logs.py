@@ -35,6 +35,9 @@ _BYTES_PER_LINE_ESTIMATE = 400
 
 _LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.\-]+$")
+# BUG-05：配置读写审计单独成文件（audit.py 写入），不进日志查看器——
+# 审计与被审计对象不同窗，/api/v1/logs 只留服务运行日志。
+_AUDIT_LOG_NAME = "audit.log"
 
 
 def log_dir() -> Path:
@@ -75,6 +78,8 @@ def list_logs() -> list[LogFileInfo]:
     for path in sorted(directory.glob("*.log")):
         if not path.is_file():
             continue
+        if path.name == _AUDIT_LOG_NAME:
+            continue
         stat = path.stat()
         rotated = sum(
             1 for _ in directory.glob(f"{path.name}.*")
@@ -99,6 +104,8 @@ def resolve_log_path(name: str) -> Path | None:
 
     directory = log_dir()
     if not directory.is_dir():
+        return None
+    if name == _AUDIT_LOG_NAME:
         return None
 
     candidate = (directory / name).resolve()

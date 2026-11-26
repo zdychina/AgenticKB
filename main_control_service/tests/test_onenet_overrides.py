@@ -10,7 +10,11 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from main_control_service.config_masking import MASK_PREFIX
 from main_control_service.main import create_app
+
+#: BUG-05：内部调用（X-Internal-Auth）拿原值，浏览器调用拿掩码值——双跑断言。
+_INTERNAL = {"X-Internal-Auth": "test-internal"}
 
 _ONENET_YAML = """\
 app_id: global-app
@@ -54,7 +58,7 @@ def test_onenet_override_crud_roundtrip(tmp_path: Path) -> None:
     with _onenet_client(tmp_path) as c:
         r = _put_override(c, "app_id: odn-app\ntoken_url: http://odn.example/token\n")
         assert r.status_code == 200, r.text
-        assert r.json() == {"ok": True}          # 无 reload 字段（无 notify 机制）
+        assert r.json() == {"ok": True, "preserved": []}  # 无 reload 字段（无 notify 机制）
 
         items = c.get("/api/v1/system/onenet/domains").json()["items"]
         assert items == [{"domain_id": "odn", "app_id": "odn-app"}]  # token 不出
@@ -66,8 +70,12 @@ def test_onenet_override_crud_roundtrip(tmp_path: Path) -> None:
         eff = c.get("/api/v1/system/onenet/effective/odn").json()
         assert eff["app_id"] == "odn-app"          # 覆盖生效
         assert eff["token_url"] == "http://odn.example/token"
-        assert eff["static_token"] == "global-tok"  # 未覆盖键继承全局
+        # BUG-05：浏览器读 → static_token 掩码；内部头读 → 原值（mining 消费链）
+        assert eff["static_token"] == MASK_PREFIX + "-tok"  # global-tok
         assert eff["chunk_width"] == 8000
+        eff_int = c.get("/api/v1/system/onenet/effective/odn",
+                        headers=_INTERNAL).json()
+        assert eff_int["static_token"] == "global-tok"  # 未覆盖键继承全局
 
         r = c.delete("/api/v1/system/onenet/domains/odn/raw")
         assert r.status_code == 200 and r.json()["deleted"] is True
@@ -80,7 +88,10 @@ def test_onenet_effective_without_override_is_global(tmp_path: Path) -> None:
     with _onenet_client(tmp_path) as c:
         eff = c.get("/api/v1/system/onenet/effective/odn").json()
         assert eff["app_id"] == "global-app"
-        assert eff["static_token"] == "global-tok"
+        assert eff["static_token"] == MASK_PREFIX + "-tok"  # BUG-05：浏览器读掩码
+        eff_int = c.get("/api/v1/system/onenet/effective/odn",
+                        headers=_INTERNAL).json()
+        assert eff_int["static_token"] == "global-tok"
 
 
 # ---------------------------------------------------------------- 校验矩阵
@@ -192,7 +203,10 @@ def test_onenet_global_put_structure_validation(tmp_path: Path) -> None:
         assert r.status_code == 200, r.text
         eff = c.get("/api/v1/system/onenet/effective/odn").json()
         assert eff["app_id"] == "odn-app"
-        assert eff["static_token"] == "rotated-tok"
+        assert eff["static_token"] == MASK_PREFIX + "-tok"  # BUG-05：浏览器读掩码
+        eff_int = c.get("/api/v1/system/onenet/effective/odn",
+                        headers=_INTERNAL).json()
+        assert eff_int["static_token"] == "rotated-tok"
 
 
 def test_domain_deletion_cascades_onenet_override(

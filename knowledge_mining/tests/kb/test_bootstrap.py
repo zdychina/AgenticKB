@@ -10,7 +10,8 @@ from knowledge_mining.mining.kb.security import verify_password
 
 @pytest.mark.asyncio
 async def test_seeds_admin_when_none(async_pool):
-    await bootstrap.seed_initial_admin(async_pool, admin_password="init-pass")
+    status = await bootstrap.seed_initial_admin(async_pool, admin_password="init-pass")
+    assert status == "seeded"
     admin = await KbDB(async_pool).get_user_by_username("admin")
     assert admin is not None
     assert admin["site_role"] == "admin"
@@ -20,10 +21,11 @@ async def test_seeds_admin_when_none(async_pool):
 @pytest.mark.asyncio
 async def test_idempotent_preserves_existing_admin(async_pool):
     """已有可登录 admin → 二次启动不改其 password_hash/site_role。"""
-    await bootstrap.seed_initial_admin(async_pool, admin_password="first")
+    assert await bootstrap.seed_initial_admin(async_pool, admin_password="first") == "seeded"
     original_hash = (await KbDB(async_pool).get_user_by_username("admin"))["password_hash"]
     # 二次播种用不同密码
-    await bootstrap.seed_initial_admin(async_pool, admin_password="different")
+    status = await bootstrap.seed_initial_admin(async_pool, admin_password="different")
+    assert status == "skipped_existing_admin"
     admin2 = await KbDB(async_pool).get_user_by_username("admin")
     assert admin2["password_hash"] == original_hash  # 未被覆盖
     assert admin2["site_role"] == "admin"
@@ -53,14 +55,17 @@ async def test_promotes_existing_admin_username_row(async_pool):
 
 @pytest.mark.asyncio
 async def test_empty_password_skips(async_pool):
-    await bootstrap.seed_initial_admin(async_pool, admin_password="")
+    status = await bootstrap.seed_initial_admin(async_pool, admin_password="")
+    assert status == "skipped_placeholder"
     assert await KbDB(async_pool).has_admin() is False
 
 
 @pytest.mark.asyncio
 async def test_placeholder_password_skips(async_pool):
     """样板占位符（仓库公开）不能用来播种首 admin。"""
-    await bootstrap.seed_initial_admin(async_pool, admin_password="change-me-on-first-login")
+    status = await bootstrap.seed_initial_admin(
+        async_pool, admin_password="change-me-on-first-login")
+    assert status == "skipped_placeholder"
     assert await KbDB(async_pool).has_admin() is False
 
 
@@ -71,7 +76,8 @@ async def test_does_not_clobber_existing_admin_with_password(async_pool):
     await db.create_user(
         username="admin", password_hash="$algo$1$AA$BB", site_role="member",
     )  # 故意 member + 有密码
-    await bootstrap.seed_initial_admin(async_pool, admin_password="realpass1")
+    status = await bootstrap.seed_initial_admin(async_pool, admin_password="realpass1")
+    assert status == "skipped_existing_user"
     admin = await db.get_user_by_username("admin")
     assert admin["password_hash"] == "$algo$1$AA$BB"  # 未被覆盖
 

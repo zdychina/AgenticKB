@@ -116,7 +116,7 @@
                   class="llm-overrides-tab__control"
                 />
                 <div class="llm-overrides-tab__field-hint">
-                  留空继承全局；填写后该域用独立端点/密钥调用 rerank
+                  显示 •••••• 掩码 = 保留本域现有密钥；清空 = 删除本域覆盖、回落全局；输入新值 = 该域独立调用 rerank
                 </div>
               </el-form-item>
 
@@ -150,7 +150,7 @@
                   class="llm-overrides-tab__control"
                 />
                 <div class="llm-overrides-tab__field-hint">
-                  留空继承全局密钥；填写后该域用独立密钥调用
+                  显示 •••••• 掩码 = 保留本域现有密钥；清空 = 删除本域覆盖、回落全局；输入新值 = 独立密钥调用
                 </div>
               </el-form-item>
               <el-form-item label="向量维度">

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import secrets
 import time
 from collections.abc import Awaitable, Callable
@@ -146,12 +147,38 @@ def _is_public_config_read(method: str, path: str) -> bool:
     }
 
 
-def _is_internal_config_read(method: str, path: str) -> bool:
+def _is_internal_scope(method: str, path: str) -> bool:
+    """内部服务（X-Internal-Auth）可走的配置面。
+
+    BUG-05：GET 配置读之外，新增 POST /api/v1/system/auth/consume-bootstrap
+    （mining 播种成功后删除 auth.yaml 的 bootstrap.admin_password）。
+    """
+    if method == "POST" and path == "/api/v1/system/auth/consume-bootstrap":
+        return True
     return method == "GET" and (
         path == "/api/v1/system"
         or path.startswith("/api/v1/system/")
         or path == "/api/v1/serving-config"
     )
+
+
+def _internal_read_scope(method: str, path: str) -> bool:
+    return (_is_internal_scope(method, path)
+            or (method == "GET" and path.startswith("/api/v1/domains")))
+
+
+#: jwt_secret 支持整体 ${VAR} 环境变量引用（BUG-05 4.3）；
+#: 未设置/空的变量 → 空 secret → secrets_valid=False → 沿用既有 503 fail-closed。
+_ENV_REF = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def _expand_env_ref(value: str) -> str:
+    """整体 ${VAR} → 环境变量值；其余 ${ 开头的残缺引用同样归零（fail-closed，
+    绝不把引用字面量当密钥用——那比明文更糟：可预测）。"""
+    if not value.startswith("${"):
+        return value
+    m = _ENV_REF.match(value)
+    return os.environ.get(m.group(1), "") if m else ""
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -183,6 +210,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
             raise RuntimeError(f"identity backend unavailable:{reason or 'unknown'}")
         return access.get("site_role") == "admin"
 
+    def _match_internal_secret(self, request: Request) -> bool:
+        """内部共享 secret 校验（compare_digest + 双非空：空 secret 时永不匹配）。"""
+        expected = str(self._state.get("internal_verify_secret", "") or "")
+        supplied = request.headers.get("x-internal-auth", "")
+        return bool(expected and supplied
+                    and secrets.compare_digest(supplied, expected))
+
     def reload(self) -> dict[str, object]:
         if self._config_path.exists():
             self._config_present = True
@@ -192,6 +226,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
             self._config_present = False
             logger.critical("auth config not found at %s — refusing requests", self._config_path)
             self._state = {}
+        # BUG-05：jwt_secret 支持 ${VAR} env 注入（展开失败 → 空 → 下方 fail-closed）。
+        self._jwt_secret_resolved = _expand_env_ref(
+            str(self._state.get("jwt_secret", "")))
         if bool(self._state.get("enabled", False)) and not self.secrets_valid:
             # 占位符/空 secret 在仓库公开 —— 拒绝以它们运行（防伪造 JWT/直连伪造）。
             # 强制关闭鉴权：mining 侧同步拒占位符 internal_verify_secret → 全链路 401，
@@ -208,7 +245,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     @property
     def secrets_valid(self) -> bool:
-        return _secret_valid(self._state.get("jwt_secret")) and _secret_valid(
+        return _secret_valid(self.jwt_secret) and _secret_valid(
             self._state.get("internal_verify_secret")
         )
 
@@ -218,7 +255,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     @property
     def jwt_secret(self) -> str:
-        return str(self._state.get("jwt_secret", ""))
+        return getattr(self, "_jwt_secret_resolved", "") or ""
 
     @property
     def token_ttl_seconds(self) -> int:
@@ -239,6 +276,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not self._config_present:
             return JSONResponse(status_code=503, content={"detail": "auth misconfigured"})
         if not self.enabled:
+            # BUG-05：disabled 模式同样识别内部头——只打 internal_call 标记，
+            # 让内部调用拿未掩码配置（测试/dev fixture 与生产 enabled 路径同语义）。
+            # 不放行任何权限：disabled 本就全放行，此分支严格缩小暴露面。
+            if (self._match_internal_secret(request)
+                    and _internal_read_scope(request.method, request.url.path)):
+                request.state.internal_call = True
             return await call_next(request)
         if not self.secrets_valid:
             return JSONResponse(status_code=503, content={"detail": "auth misconfigured"})
@@ -250,14 +293,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 内部服务启动配置读取必须凭共享 secret；loopback/转发头不是身份。
-        expected_internal = getattr(request.app.state, "internal_verify_secret", "")
-        supplied_internal = request.headers.get("x-internal-auth", "")
-        internal_scope = (
-            _is_internal_config_read(request.method, request.url.path)
-            or (request.method == "GET" and request.url.path.startswith("/api/v1/domains"))
-        )
-        if (internal_scope and expected_internal and supplied_internal
-                and secrets.compare_digest(supplied_internal, expected_internal)):
+        internal_scope = _internal_read_scope(request.method, request.url.path)
+        if internal_scope and self._match_internal_secret(request):
             request.state.internal_call = True
             return await call_next(request)
 
