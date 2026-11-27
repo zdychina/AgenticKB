@@ -60,11 +60,14 @@ export interface RetrievalRecordsExport {
 }
 
 export interface RetrievalSummaryCounts {
-  total_calls: number
-  calls: number
+  /** 全部访问操作总量（含网页/API/MCP 读取与上传）。 */
+  all_operations: number
+  /** 仅检索（operation='search'）；两个比率的分母。 */
+  search_calls: number
   no_result: number
   no_result_rate: number
-  failed: number
+  /** 检索口径失败（denied/invalid/timeout/failed），failure_rate 的分子。 */
+  search_failed: number
   failure_rate: number
   p95_duration_ms: number
   avg_duration_ms: number
@@ -87,7 +90,7 @@ export interface RetrievalRecordsSummary {
   available: boolean
   days: number
   summary: RetrievalSummaryCounts
-  trend: Array<{ date: string; total_calls: number; calls: number; no_result: number; failed: number }>
+  trend: Array<{ date: string; all_operations: number; search_calls: number; no_result: number; search_failed: number }>
   paradigms: Array<{ paradigm_id: string; calls: number; no_result: number }>
   tools: Array<{ tool_name: string; calls: number; no_result: number }>
   sources: Record<string, number>

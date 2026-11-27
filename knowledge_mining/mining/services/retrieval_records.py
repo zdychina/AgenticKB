@@ -227,10 +227,10 @@ def _empty_summary(days: int) -> dict[str, Any]:
         "available": False,
         "days": days,
         "summary": {
-            "total_calls": 0,
-            "calls": 0,
+            "all_operations": 0,
+            "search_calls": 0,
             "no_result": 0,
-            "failed": 0,
+            "search_failed": 0,
             "no_result_rate": 0.0,
             "failure_rate": 0.0,
             "p95_duration_ms": 0.0,

@@ -12,7 +12,7 @@ function usage(over: Partial<OpsUsage> = {}): OpsUsage {
     available: true,
     days: 7,
     summary: {
-      queries: 100, no_result: 7, no_result_rate: 0.07,
+      queries: 100, search_calls: 100, no_result: 7, no_result_rate: 0.07,
       p95_duration_ms: 412,
     },
     ...over,
@@ -45,7 +45,7 @@ describe('alert thresholds', () => {
   it('样本足够且超阈值 → 报警', () => {
     expect(shouldAlertNoResult(usage({
       summary: {
-        queries: 200, no_result: 60, no_result_rate: 0.3,
+        queries: 200, search_calls: 200, no_result: 60, no_result_rate: 0.3,
         p95_duration_ms: 1,
       },
     }))).toBe(true)
@@ -54,7 +54,16 @@ describe('alert thresholds', () => {
   it('样本太少不报警——3 次里 1 次就是 33%，据此弹红只会训练人忽略它', () => {
     expect(shouldAlertNoResult(usage({
       summary: {
-        queries: 3, no_result: 1, no_result_rate: 0.333,
+        queries: 3, search_calls: 3, no_result: 1, no_result_rate: 0.333,
+        p95_duration_ms: 1,
+      },
+    }))).toBe(false)
+  })
+
+  it('门槛看 search_calls（检索口径）而非 queries——读取/上传流量不算零结果率样本（BUG-11）', () => {
+    expect(shouldAlertNoResult(usage({
+      summary: {
+        queries: 200, search_calls: 3, no_result: 1, no_result_rate: 0.333,
         p95_duration_ms: 1,
       },
     }))).toBe(false)
@@ -68,7 +77,7 @@ describe('alert thresholds', () => {
     expect(shouldAlertNoResult(usage({
       available: false,
       summary: {
-        queries: 200, no_result: 60, no_result_rate: 0.3,
+        queries: 200, search_calls: 200, no_result: 60, no_result_rate: 0.3,
         p95_duration_ms: 1,
       },
     }))).toBe(false)

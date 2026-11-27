@@ -40,7 +40,7 @@ class QueryLogStats:
     async def summary(self, *, domain: str, days: int) -> dict[str, Any]:
         summary = (await self._payload(domain=domain, days=days))["summary"]
         return {
-            "queries": summary["calls"],
+            "queries": summary["search_calls"],
             "no_result": summary["no_result"],
             "no_result_rate": summary["no_result_rate"],
             "p95_duration_ms": summary["p95_duration_ms"],
@@ -73,7 +73,7 @@ class QueryLogStats:
     async def trend(self, *, domain: str, days: int) -> list[dict[str, Any]]:
         rows = (await self._payload(domain=domain, days=days))["trend"]
         return [
-            {"date": row["date"], "queries": row["calls"], "no_result": row["no_result"]}
+            {"date": row["date"], "queries": row["search_calls"], "no_result": row["no_result"]}
             for row in rows
         ]
 

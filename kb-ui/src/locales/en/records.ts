@@ -25,6 +25,12 @@ export const enRecords: Record<keyof typeof zhRecords, string> = {
   'records.metric.retrievalCalls': 'Retrieval Calls',
   'records.metric.noResultRate': 'No-result Rate',
   'records.metric.failureRate': 'Failure Rate',
+  // Scope subtitles and rate tooltips (BUG-11: explicit denominators)
+  'records.metric.callsSub': 'Includes reads & uploads',
+  'records.metric.searchCallsSub': 'Searches only',
+  'records.metric.rateDenomSub': 'Denominator: search calls',
+  'records.metric.noResultRateTip': 'No-result {n} / search calls {d}',
+  'records.metric.failureRateTip': 'Failed searches {n} / search calls {d}',
   'records.metric.avgLatency': 'Average Latency',
   'records.metric.p95Latency': 'P95 Latency',
   // 调用来源

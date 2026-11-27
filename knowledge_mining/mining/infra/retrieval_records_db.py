@@ -543,10 +543,10 @@ class RetrievalRecordRepository:
         failed_sql = "status IN ('denied','invalid','timeout','failed')"
         async with self._pool.connection() as conn:
             cur = await conn.execute(
-                f"""SELECT COUNT(*) AS total_calls,
-                           COUNT(*) FILTER (WHERE operation = 'search') AS calls,
+                f"""SELECT COUNT(*) AS all_operations,
+                           COUNT(*) FILTER (WHERE operation = 'search') AS search_calls,
                            COUNT(*) FILTER (WHERE operation = 'search' AND status = 'no_result') AS no_result,
-                           COUNT(*) FILTER (WHERE {failed_sql}) AS failed,
+                           COUNT(*) FILTER (WHERE operation = 'search' AND {failed_sql}) AS search_failed,
                            COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms), 0) AS p95_duration_ms,
                            COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
                            COUNT(DISTINCT paradigm_id) FILTER (WHERE operation = 'search') AS active_paradigms
@@ -554,16 +554,16 @@ class RetrievalRecordRepository:
                 params,
             )
             row = await cur.fetchone() or {}
-            total_calls = int(row.get("total_calls") or 0)
-            calls = int(row.get("calls") or 0)
+            all_operations = int(row.get("all_operations") or 0)
+            search_calls = int(row.get("search_calls") or 0)
             no_result = int(row.get("no_result") or 0)
-            failed = int(row.get("failed") or 0)
+            search_failed = int(row.get("search_failed") or 0)
 
             trend_cur = await conn.execute(
-                f"""SELECT occurred_at::date AS day, COUNT(*) AS total_calls,
-                            COUNT(*) FILTER (WHERE operation = 'search') AS calls,
+                f"""SELECT occurred_at::date AS day, COUNT(*) AS all_operations,
+                            COUNT(*) FILTER (WHERE operation = 'search') AS search_calls,
                             COUNT(*) FILTER (WHERE operation = 'search' AND status = 'no_result') AS no_result,
-                            COUNT(*) FILTER (WHERE {failed_sql}) AS failed
+                            COUNT(*) FILTER (WHERE operation = 'search' AND {failed_sql}) AS search_failed
                      FROM knowledge_access_records WHERE {where}
                      GROUP BY 1 ORDER BY 1""",
                 params,
@@ -579,10 +579,10 @@ class RetrievalRecordRepository:
                 item = trend_rows.get(day.isoformat(), {})
                 trend.append({
                     "date": day.isoformat(),
-                    "total_calls": int(item.get("total_calls") or 0),
-                    "calls": int(item.get("calls") or 0),
+                    "all_operations": int(item.get("all_operations") or 0),
+                    "search_calls": int(item.get("search_calls") or 0),
                     "no_result": int(item.get("no_result") or 0),
-                    "failed": int(item.get("failed") or 0),
+                    "search_failed": int(item.get("search_failed") or 0),
                 })
                 day += timedelta(days=1)
 
@@ -604,12 +604,14 @@ class RetrievalRecordRepository:
             # 快捷档下与入参 days 相同；自定义窗口下回窗口实际天数，趋势轴长度始终与之相等
             "days": len(trend),
             "summary": {
-                "total_calls": total_calls,
-                "calls": calls,
+                "all_operations": all_operations,
+                "search_calls": search_calls,
                 "no_result": no_result,
-                "failed": failed,
-                "no_result_rate": round(no_result / calls, 4) if calls else 0.0,
-                "failure_rate": round(failed / total_calls, 4) if total_calls else 0.0,
+                "search_failed": search_failed,
+                # 两个比率同分母（search_calls，检索口径）：零结果与失败都只描述检索；
+                # 全操作总量见 all_operations（含读取/上传）
+                "no_result_rate": round(no_result / search_calls, 4) if search_calls else 0.0,
+                "failure_rate": round(search_failed / search_calls, 4) if search_calls else 0.0,
                 "p95_duration_ms": round(float(row.get("p95_duration_ms") or 0), 1),
                 "avg_duration_ms": round(float(row.get("avg_duration_ms") or 0), 1),
                 "active_paradigms": int(row.get("active_paradigms") or 0),

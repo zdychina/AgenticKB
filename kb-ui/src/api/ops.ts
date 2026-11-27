@@ -24,10 +24,11 @@ export function useOpsApi() {
         available: value.available,
         days: value.days,
         summary: {
-          queries: value.summary.total_calls,
+          queries: value.summary.all_operations,
+          search_calls: value.summary.search_calls,
           no_result: value.summary.no_result,
           no_result_rate: value.summary.no_result_rate,
-          failed: value.summary.failed,
+          failed: value.summary.search_failed,
           failed_rate: value.summary.failure_rate,
           p95_duration_ms: value.summary.p95_duration_ms,
         },

@@ -25,10 +25,14 @@
     </div>
     <template v-else-if="summary">
       <div class="records-analysis__stats">
-        <StatsCard :label="t('records.metric.calls')" :value="summary.summary.total_calls" icon="🔍" />
-        <StatsCard :label="t('records.metric.retrievalCalls')" :value="summary.summary.calls" icon="⌕" />
-        <StatsCard :label="t('records.metric.noResultRate')" :value="formatRate(summary.summary.no_result_rate)" icon="🕳" />
-        <StatsCard :label="t('records.metric.failureRate')" :value="formatRate(summary.summary.failure_rate)" icon="⚠" />
+        <StatsCard :label="t('records.metric.calls')" :value="summary.summary.all_operations" icon="🔍" :sub="t('records.metric.callsSub')" />
+        <StatsCard :label="t('records.metric.retrievalCalls')" :value="summary.summary.search_calls" icon="⌕" :sub="t('records.metric.searchCallsSub')" />
+        <el-tooltip :content="t('records.metric.noResultRateTip', { n: summary.summary.no_result, d: summary.summary.search_calls })" placement="top">
+          <StatsCard :label="t('records.metric.noResultRate')" :value="formatRate(summary.summary.no_result_rate)" icon="🕳" :sub="t('records.metric.rateDenomSub')" />
+        </el-tooltip>
+        <el-tooltip :content="t('records.metric.failureRateTip', { n: summary.summary.search_failed, d: summary.summary.search_calls })" placement="top">
+          <StatsCard :label="t('records.metric.failureRate')" :value="formatRate(summary.summary.failure_rate)" icon="⚠" :sub="t('records.metric.rateDenomSub')" />
+        </el-tooltip>
         <StatsCard :label="t('records.metric.avgLatency')" :value="formatDuration(summary.summary.avg_duration_ms)" icon="〽" />
         <StatsCard :label="t('records.metric.p95Latency')" :value="formatDuration(summary.summary.p95_duration_ms)" icon="⏱" />
       </div>
@@ -39,6 +43,7 @@
           :labels="trendLabels"
           :series="[
             { name: t('records.series.allCalls'), data: trendCalls },
+            { name: t('records.metric.retrievalCalls'), data: trendSearchCalls },
             { name: t('records.status.no_result'), data: trendNoResult },
             { name: t('records.status.failed'), data: trendFailed },
           ]"
@@ -98,9 +103,10 @@ function onPresetChange(): void {
 }
 
 const trendLabels = computed(() => summary.value?.trend.map(item => item.date.slice(5)) ?? [])
-const trendCalls = computed(() => summary.value?.trend.map(item => item.total_calls) ?? [])
+const trendCalls = computed(() => summary.value?.trend.map(item => item.all_operations) ?? [])
+const trendSearchCalls = computed(() => summary.value?.trend.map(item => item.search_calls) ?? [])
 const trendNoResult = computed(() => summary.value?.trend.map(item => item.no_result) ?? [])
-const trendFailed = computed(() => summary.value?.trend.map(item => item.failed) ?? [])
+const trendFailed = computed(() => summary.value?.trend.map(item => item.search_failed) ?? [])
 const paradigmBars = computed(() => summary.value?.paradigms.map(item => ({ name: paradigmName(item.paradigm_id), value: item.calls })) ?? [])
 // tools 后端已只回带 tool_name 的 MCP 调用，这里不再兜底"非 MCP"桶
 const toolBars = computed(() => summary.value?.tools.map(item => ({ name: item.tool_name, value: item.calls })) ?? [])

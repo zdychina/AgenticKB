@@ -33,8 +33,8 @@ const CJK = /[一-龥]/
 
 const summary = {
   available: true, days: 7,
-  summary: { total_calls: 10, calls: 7, no_result: 2, failed: 1, no_result_rate: .2, failure_rate: .1, p95_duration_ms: 300, avg_duration_ms: 100, active_paradigms: 1 },
-  trend: [{ date: '2026-09-28', total_calls: 10, calls: 7, no_result: 2, failed: 1 }],
+  summary: { all_operations: 10, search_calls: 7, no_result: 2, search_failed: 1, no_result_rate: .2, failure_rate: .1, p95_duration_ms: 300, avg_duration_ms: 100, active_paradigms: 1 },
+  trend: [{ date: '2026-09-28', all_operations: 10, search_calls: 7, no_result: 2, search_failed: 1 }],
   sources: { web: 4, mcp: 6 },
   tools: [{ tool_name: 'search_knowledge', calls: 5, no_result: 1 }],
   paradigms: [{ paradigm_id: 'p-1', calls: 7, no_result: 2 }],
@@ -82,8 +82,8 @@ describe('retrieval records analysis (EN)', () => {
     const labels = wrapper.findAllComponents({ name: 'StatsCard' }).map(card => card.props('label'))
     expect(labels).toEqual(['Calls', 'Retrieval Calls', 'No-result Rate', 'Failure Rate', 'Average Latency', 'P95 Latency'])
     const series = wrapper.findComponent({ name: 'LineChart' }).props('series')
-    // 「零结果」「失败」图例与状态筛选同词
-    expect(series.map((item: { name: string }) => item.name)).toEqual(['All Calls', 'No Result', 'Failed'])
+    // 「零结果」「失败」图例与状态筛选同词；「Retrieval Calls」与检索调用卡同词
+    expect(series.map((item: { name: string }) => item.name)).toEqual(['All Calls', 'Retrieval Calls', 'No Result', 'Failed'])
   })
 
   it('translates chart labels that come from lookup functions, never server data', async () => {
@@ -179,7 +179,7 @@ describe('retrieval records analysis (EN)', () => {
     expect(wrapper.text()).toContain('范式分布')
     expect(wrapper.findAllComponents({ name: 'BarChart' })[2].props('data')[0].name).toBe('网页')
     expect(wrapper.findComponent({ name: 'LineChart' }).props('series').map((item: { name: string }) => item.name))
-      .toEqual(['全部调用', '零结果', '失败'])
+      .toEqual(['全部调用', '检索调用', '零结果', '失败'])
     expect(wrapper.find('select').attributes('aria-label')).toBe('时间范围')
   })
 })

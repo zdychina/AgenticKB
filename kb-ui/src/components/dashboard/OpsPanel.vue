@@ -21,9 +21,9 @@
     </div>
     <template v-else>
       <div class="ops__tiles">
-        <StatsCard :label="t('dashboard.ops.queries')" :value="usage.summary.queries" icon="🔍" />
-        <StatsCard :label="t('dashboard.ops.noResultRate')" :value="formatRate(usage.summary.no_result_rate)" icon="🕳" />
-        <StatsCard :label="t('dashboard.ops.failedRate')" :value="formatRate(usage.summary.failed_rate ?? 0)" icon="⚠" />
+        <StatsCard :label="t('dashboard.ops.queries')" :value="usage.summary.queries" icon="🔍" :sub="t('records.metric.callsSub')" />
+        <StatsCard :label="t('dashboard.ops.noResultRate')" :value="formatRate(usage.summary.no_result_rate)" icon="🕳" :sub="t('records.metric.rateDenomSub')" />
+        <StatsCard :label="t('dashboard.ops.failedRate')" :value="formatRate(usage.summary.failed_rate ?? 0)" icon="⚠" :sub="t('records.metric.rateDenomSub')" />
         <StatsCard :label="t('dashboard.ops.p95Latency')" :value="formatMs(usage.summary.p95_duration_ms)" icon="⏱" />
       </div>
       <div v-if="alertText" class="ops__alert">{{ alertText }}</div>

@@ -7,7 +7,7 @@ const usage = {
   days: 7,
   trend_days: 30,
   summary: {
-    queries: 100, no_result: 7, no_result_rate: 0.07,
+    queries: 100, search_calls: 60, no_result: 7, no_result_rate: 0.07,
     failed: 3, failed_rate: 0.03,
     p95_duration_ms: 412, avg_duration_ms: 180, active_paradigms: 2,
   },

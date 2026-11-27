@@ -1,9 +1,13 @@
 <template>
   <section class="records-panel">
     <div v-if="showSummary" class="records-panel__summary">
-      <StatsCard :label="t('records.metric.calls')" :value="summary?.summary.total_calls ?? '—'" icon="🔍" />
-      <StatsCard :label="t('records.metric.noResultRate')" :value="formatRate(summary?.summary.no_result_rate)" icon="🕳" />
-      <StatsCard :label="t('records.metric.failureRate')" :value="formatRate(summary?.summary.failure_rate)" icon="⚠" />
+      <StatsCard :label="t('records.metric.calls')" :value="summary?.summary.all_operations ?? '—'" icon="🔍" :sub="t('records.metric.callsSub')" />
+      <el-tooltip :content="t('records.metric.noResultRateTip', { n: summary?.summary.no_result ?? 0, d: summary?.summary.search_calls ?? 0 })" placement="top">
+        <StatsCard :label="t('records.metric.noResultRate')" :value="formatRate(summary?.summary.no_result_rate)" icon="🕳" :sub="t('records.metric.rateDenomSub')" />
+      </el-tooltip>
+      <el-tooltip :content="t('records.metric.failureRateTip', { n: summary?.summary.search_failed ?? 0, d: summary?.summary.search_calls ?? 0 })" placement="top">
+        <StatsCard :label="t('records.metric.failureRate')" :value="formatRate(summary?.summary.failure_rate)" icon="⚠" :sub="t('records.metric.rateDenomSub')" />
+      </el-tooltip>
       <StatsCard :label="t('records.metric.p95Latency')" :value="formatDuration(summary?.summary.p95_duration_ms)" icon="⏱" />
     </div>
 

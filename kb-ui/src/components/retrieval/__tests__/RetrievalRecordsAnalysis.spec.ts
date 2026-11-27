@@ -23,8 +23,8 @@ describe('RetrievalRecordsAnalysis', () => {
     operatorApi.listParadigms.mockResolvedValue([{ id: 'p-1', name: '告警范式' }])
     api.getSummary.mockResolvedValue({
       available: true, days: 7,
-      summary: { total_calls: 10, calls: 7, no_result: 2, failed: 1, no_result_rate: .2, failure_rate: .1, p95_duration_ms: 300, avg_duration_ms: 100, active_paradigms: 1 },
-      trend: [{ date: '2026-09-28', total_calls: 10, calls: 7, no_result: 2, failed: 1 }],
+      summary: { all_operations: 10, search_calls: 7, no_result: 2, search_failed: 1, no_result_rate: .2, failure_rate: .1, p95_duration_ms: 300, avg_duration_ms: 100, active_paradigms: 1 },
+      trend: [{ date: '2026-09-28', all_operations: 10, search_calls: 7, no_result: 2, search_failed: 1 }],
       sources: { web: 4, mcp: 6 },
       tools: [{ tool_name: 'search_knowledge', calls: 5, no_result: 1 }],
       paradigms: [{ paradigm_id: 'p-1', calls: 7, no_result: 2 }],

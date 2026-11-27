@@ -25,6 +25,12 @@ export const zhRecords = {
   'records.metric.retrievalCalls': '检索调用',
   'records.metric.noResultRate': '零结果率',
   'records.metric.failureRate': '失败率',
+  // 口径副标题与比率悬浮提示（BUG-11：分母显式化）
+  'records.metric.callsSub': '含读取、上传',
+  'records.metric.searchCallsSub': '仅检索',
+  'records.metric.rateDenomSub': '分母：检索调用',
+  'records.metric.noResultRateTip': '零结果 {n} / 检索调用 {d}',
+  'records.metric.failureRateTip': '检索失败 {n} / 检索调用 {d}',
   'records.metric.avgLatency': '平均延迟',
   'records.metric.p95Latency': 'P95 延迟',
   // 调用来源（筛选下拉 / 表格 / 详情 / 导出共用；MCP、API 为语言中性字面量不入字典）

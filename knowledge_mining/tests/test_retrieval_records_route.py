@@ -27,10 +27,10 @@ class FakeService:
             "available": True,
             "days": kwargs["days"],
             "summary": {
-                "total_calls": 1,
-                "calls": 1,
+                "all_operations": 1,
+                "search_calls": 1,
                 "no_result": 0,
-                "failed": 0,
+                "search_failed": 0,
                 "no_result_rate": 0.0,
                 "failure_rate": 0.0,
                 "p95_duration_ms": 25.0,
@@ -86,11 +86,11 @@ def test_summary_static_route_is_registered_before_dynamic_detail(monkeypatch: p
         "paradigms", "top_queries",
     }
     assert set(body["summary"]) == {
-        "total_calls", "calls", "no_result", "failed", "no_result_rate",
-        "failure_rate", "p95_duration_ms", "avg_duration_ms",
-        "active_paradigms",
+        "all_operations", "search_calls", "no_result", "search_failed",
+        "no_result_rate", "failure_rate", "p95_duration_ms",
+        "avg_duration_ms", "active_paradigms",
     }
-    assert body["summary"]["calls"] == 1
+    assert body["summary"]["search_calls"] == 1
     assert service.calls == [(
         "summary",
         {

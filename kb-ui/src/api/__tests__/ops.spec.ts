@@ -14,7 +14,7 @@ describe('ops api', () => {
     get.mockReset()
     get.mockResolvedValue({ data: {
       available: false, days: 7,
-      summary: { total_calls: 0, calls: 0, no_result: 0, failed: 0, no_result_rate: 0, failure_rate: 0, p95_duration_ms: 0, avg_duration_ms: 0, active_paradigms: 0 },
+      summary: { all_operations: 0, search_calls: 0, no_result: 0, search_failed: 0, no_result_rate: 0, failure_rate: 0, p95_duration_ms: 0, avg_duration_ms: 0, active_paradigms: 0 },
       trend: [], paradigms: [], tools: [], sources: {},
     } })
   })
@@ -35,7 +35,7 @@ describe('ops api', () => {
       available: false,
       days: 7,
       summary: {
-        queries: 0, no_result: 0, no_result_rate: 0,
+        queries: 0, search_calls: 0, no_result: 0, no_result_rate: 0,
         failed: 0, failed_rate: 0, p95_duration_ms: 0,
       },
     })

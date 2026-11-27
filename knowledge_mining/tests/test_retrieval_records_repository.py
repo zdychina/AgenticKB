@@ -27,10 +27,10 @@ class _Connection:
         self.statements: list[tuple[str, dict]] = []
         self._responses = [
             _Rows(one={
-                "total_calls": 3,
-                "calls": 1,
+                "all_operations": 4,
+                "search_calls": 2,
                 "no_result": 1,
-                "failed": 1,
+                "search_failed": 1,
                 "p95_duration_ms": 20,
                 "avg_duration_ms": 10,
                 "active_paradigms": 1,
@@ -78,6 +78,12 @@ class _ListConnection:
 
 @pytest.mark.asyncio
 async def test_summary_counts_searches_separately_from_read_and_upload_calls() -> None:
+    """场景：1 条零结果检索 + 1 条失败检索 + 1 条读取 + 1 条失败上传。
+
+    钉口径：all_operations 是全操作总量；search_calls/no_result/search_failed
+    都是检索口径——失败分子必须过滤 operation='search'，失败上传不得计入
+    failure_rate（BUG-11：两个比率一个分母）。
+    """
     connection = _Connection()
     repository = RetrievalRecordRepository(_Pool(connection))
 
@@ -90,12 +96,16 @@ async def test_summary_counts_searches_separately_from_read_and_upload_calls() -
     )
 
     summary_sql = connection.statements[0][0]
-    assert "COUNT(*) AS total_calls" in summary_sql
+    assert "COUNT(*) AS all_operations" in summary_sql
     assert "operation = 'search'" in summary_sql
-    assert result["summary"]["total_calls"] == 3
-    assert result["summary"]["calls"] == 1
-    assert result["summary"]["no_result_rate"] == 1.0
-    assert result["summary"]["failure_rate"] == pytest.approx(1 / 3, abs=0.0001)
+    # 失败分子收窄到检索：search_failed 的 FILTER 必须同时带 operation 与状态集
+    assert "operation = 'search' AND status IN" in summary_sql
+    assert "AS search_failed" in summary_sql
+    assert result["summary"]["all_operations"] == 4
+    assert result["summary"]["search_calls"] == 2
+    assert result["summary"]["search_failed"] == 1
+    assert result["summary"]["no_result_rate"] == 0.5
+    assert result["summary"]["failure_rate"] == 0.5
 
 
 @pytest.mark.asyncio

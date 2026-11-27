@@ -65,7 +65,7 @@ function usage(over: Record<string, unknown> = {}) {
     days: 7,
     trend_days: 30,
     summary: {
-      queries: 100, no_result: 7, no_result_rate: 0.07,
+      queries: 100, search_calls: 100, no_result: 7, no_result_rate: 0.07,
       p95_duration_ms: 412, avg_duration_ms: 180, active_paradigms: 2,
     },
     no_result_queries: [{ query_text: 'SMF 会话建立超时', count: 12, last_at: null }],
@@ -447,7 +447,7 @@ describe('概览页（统计仪表盘）', () => {
     setRole('admin')
     opsApi.getUsage.mockResolvedValue(usage({
       summary: {
-        queries: 3, no_result: 1, no_result_rate: 0.333,
+        queries: 3, search_calls: 3, no_result: 1, no_result_rate: 0.333,
         p95_duration_ms: 100, avg_duration_ms: 80, active_paradigms: 1,
       },
     }))
@@ -461,7 +461,7 @@ describe('概览页（统计仪表盘）', () => {
     setRole('admin')
     opsApi.getUsage.mockResolvedValue(usage({
       summary: {
-        queries: 200, no_result: 60, no_result_rate: 0.3,
+        queries: 200, search_calls: 200, no_result: 60, no_result_rate: 0.3,
         p95_duration_ms: 100, avg_duration_ms: 80, active_paradigms: 1,
       },
     }))

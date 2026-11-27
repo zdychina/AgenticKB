@@ -4,6 +4,7 @@
     <div class="stats-card__body">
       <div class="stats-card__label">{{ label }}</div>
       <div class="stats-card__value">{{ value }}</div>
+      <div v-if="sub" class="stats-card__sub">{{ sub }}</div>
     </div>
   </div>
 </template>
@@ -64,5 +65,11 @@ withDefaults(defineProps<{
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.5px;
   line-height: 1.15;
+}
+
+.stats-card__sub {
+  font-size: 11px;
+  color: var(--kb-text-tertiary);
+  line-height: 1.2;
 }
 </style>
