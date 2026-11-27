@@ -16,7 +16,9 @@ from knowledge_mining.mining.kb.deps import (
 )
 from knowledge_mining.mining.kb.routes.kbs import _map_error
 from knowledge_mining.mining.kb.services.folder_service import FolderService
-from knowledge_mining.mining.kb.services.kb_service import Duplicate, Forbidden, NotFound
+from knowledge_mining.mining.kb.services.kb_service import (
+    FOLDER_404, Duplicate, Forbidden, NotFound,
+)
 
 router = APIRouter(prefix="/api/kb/{kb_id}/folders", tags=["kb-folders"])
 
@@ -109,7 +111,7 @@ async def folder_delete_preview(
     try:
         folder = await svc._db.get_folder(folder_id)
         if folder is None or folder["kb_id"] != kb_id:
-            raise HTTPException(404, "folder not found")
+            raise HTTPException(404, FOLDER_404)
         await svc._svc._assert_write(kb_id, user["id"])
         return await purge.folder_delete_preview(kb_id, folder["path"])
     except (NotFound, Forbidden) as exc:
@@ -137,7 +139,7 @@ async def delete_folder(
     from knowledge_mining.mining.kb.services.purge_service import PurgeError
     folder = await svc._db.get_folder(folder_id)
     if folder is None or folder["kb_id"] != kb_id:
-        raise HTTPException(404, "folder not found")
+        raise HTTPException(404, FOLDER_404)
     try:
         await svc._svc._assert_write(kb_id, user["id"])
         # 服务端确认门槛（安全审查 H-1）：大范围级联（>50 文档）要求

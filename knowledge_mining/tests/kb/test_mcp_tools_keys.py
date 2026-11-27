@@ -18,6 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from knowledge_mining.mining.kb.db import KbDB
 from knowledge_mining.mining.kb.deps import get_document_service
 from knowledge_mining.mining.kb.routes.mcp_tools import router as mcp_tools_router
+from knowledge_mining.mining.kb.services.kb_service import KB_404
 
 BASE = "/api/kb/mcp-tools"
 INTERNAL = {"X-Internal-Auth": os.environ.get("KB_TEST_INTERNAL_AUTH", "test-ivs")}
@@ -137,7 +138,8 @@ async def test_begin_upload_outside_key_open_set_404(async_pool, kbdb):
                                "kb_id": kb_b["id"], "filename": "a.txt"},
                          headers=INTERNAL)
         assert r.status_code == 404, r.text
-        assert r.json()["detail"] == f"knowledge base not found: {kb_b['id']}"
+        # BUG-08：404 detail 不再携带裸 kb_id，统一码+中文（反探测口径不变）
+        assert r.json()["detail"] == KB_404
         # 在开放集内 → 正常签发票据
         kb_id = (await kbdb.get_kb(_kb_a["id"]))["id"]
         r = await c.post(f"{BASE}/begin-upload",
@@ -163,7 +165,7 @@ async def test_list_documents_open_set_gate(async_pool, kbdb):
                                "key_id": _key_b, "kb_id": kb_a["id"]},
                          headers=INTERNAL)
         assert r.status_code == 404, r.text
-        assert r.json()["detail"] == f"knowledge base not found: {kb_a['id']}"
+        assert r.json()["detail"] == KB_404
         # keyA 开 kbA → 200
         r = await c.post(f"{BASE}/list-documents",
                          json={"username": user["username"],

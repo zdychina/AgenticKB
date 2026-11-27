@@ -8,7 +8,9 @@ from typing import Any
 from psycopg.errors import UniqueViolation
 
 from knowledge_mining.mining.kb.db import KbDB
-from knowledge_mining.mining.kb.services.kb_service import Duplicate, KbService, NotFound
+from knowledge_mining.mining.kb.services.kb_service import (
+    DOC_404, FOLDER_404, KB_404, Duplicate, KbService, NotFound,
+)
 from knowledge_mining.mining.kb.storage import (
     join_path, normalize_folder_name,
 )
@@ -37,7 +39,7 @@ class FolderService:
     async def get_folder(self, *, folder_id: str, user_id: str) -> dict[str, Any]:
         folder = await self._db.get_folder(folder_id)
         if folder is None:
-            raise NotFound(folder_id)
+            raise NotFound(FOLDER_404)
         await self._svc._assert_read(folder["kb_id"], user_id)
         return folder
 
@@ -46,17 +48,17 @@ class FolderService:
     ) -> dict[str, Any]:
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         await self._svc._assert_write(kb_id, user_id)
         name = normalize_folder_name(name)
         parent_path = ""
         if parent_id is not None:
             parent = await self._db.get_folder(parent_id)
             if parent is None or parent["kb_id"] != kb_id:
-                raise NotFound(parent_id)
+                raise NotFound(FOLDER_404)
             parent_path = parent["path"]
         if await self._db.find_folder_by_parent(kb_id=kb_id, parent_id=parent_id, name=name):
-            raise Duplicate(f"{kb_id}/{join_path(parent_path, name)}")
+            raise Duplicate(f"同级已存在同名文件夹：{join_path(parent_path, name)}")
         path = join_path(parent_path, name)
         try:
             return await self._db.insert_folder(
@@ -64,7 +66,7 @@ class FolderService:
                 path=path, created_by=user_id,
             )
         except UniqueViolation as exc:
-            raise Duplicate(f"{kb_id}/{path}") from exc
+            raise Duplicate(f"同级已存在同名文件夹：{path}") from exc
 
     async def ensure_folder_path(
         self, *, kb_id: str, path: str, user_id: str,
@@ -104,13 +106,14 @@ class FolderService:
         """仅删空文件夹（无子文件夹、无文档）。非空 → ValueError（路由映射 409）。"""
         folder = await self._db.get_folder(folder_id)
         if folder is None:
-            raise NotFound(folder_id)
+            raise NotFound(FOLDER_404)
         kb_id = folder["kb_id"]
         await self._svc._assert_write(kb_id, user_id)
         children = await self._db.count_child_folders(kb_id=kb_id, parent_id=folder_id)
         docs = await self._db.count_docs_under_path(kb_id=kb_id, path=folder["path"])
         if children or docs:
-            raise ValueError(f"folder not empty: {children} subfolder(s), {docs} doc(s)")
+            raise ValueError(
+                f"文件夹非空：含 {children} 个子文件夹、{docs} 个文档，请先清空再删除")
         await self._db.delete_folder_row(folder_id)
 
     # ----------------------------------------------- move / rename (G3)
@@ -118,21 +121,22 @@ class FolderService:
     async def rename_folder(self, *, folder_id: str, name: str, user_id: str) -> dict[str, Any]:
         folder = await self._db.get_folder(folder_id)
         if folder is None:
-            raise NotFound(folder_id)
+            raise NotFound(FOLDER_404)
         kb_id = folder["kb_id"]
         await self._svc._assert_write(kb_id, user_id)
         name = normalize_folder_name(name)
         if name == folder["name"]:
             return folder
         if await self._db.find_folder_by_parent(kb_id=kb_id, parent_id=folder["parent_id"], name=name):
-            raise Duplicate(f"{kb_id}/{join_path(_parent_of(folder['path']), name)}")
+            raise Duplicate(
+                f"同级已存在同名文件夹：{join_path(_parent_of(folder['path']), name)}")
         try:
             result = await self._db.relocate_folder_logically(
                 folder_id, kb_id=kb_id, name=name, parent_id=folder["parent_id"], expected_path=folder["path"])
         except UniqueViolation as exc:
-            raise Duplicate("target folder already exists") from exc
+            raise Duplicate("目标位置已存在同名文件夹") from exc
         if result is None:
-            raise NotFound(folder_id)
+            raise NotFound(FOLDER_404)
         return result
 
     async def move_folder(
@@ -140,18 +144,18 @@ class FolderService:
     ) -> dict[str, Any]:
         folder = await self._db.get_folder(folder_id)
         if folder is None:
-            raise NotFound(folder_id)
+            raise NotFound(FOLDER_404)
         kb_id = folder["kb_id"]
         await self._svc._assert_write(kb_id, user_id)
         new_parent_path = ""
         if target_parent_id is not None:
             if target_parent_id == folder_id:
-                raise ValueError("cannot move folder into itself")
+                raise ValueError("不能把文件夹移动到它自己内部")
             target = await self._db.get_folder(target_parent_id)
             if target is None or target["kb_id"] != kb_id:
-                raise NotFound(target_parent_id)
+                raise NotFound(FOLDER_404)
             if _is_within(target["path"], folder["path"]):
-                raise ValueError("cannot move folder into its own subtree")
+                raise ValueError("不能把文件夹移动到它自己的子级内部")
             new_parent_path = target["path"]
         old_path = folder["path"]
         new_path = join_path(new_parent_path, folder["name"])
@@ -160,14 +164,14 @@ class FolderService:
         if await self._db.find_folder_by_parent(
             kb_id=kb_id, parent_id=target_parent_id, name=folder["name"]
         ):
-            raise Duplicate(f"{kb_id}/{new_path}")
+            raise Duplicate(f"目标位置已存在同名文件夹：{new_path}")
         try:
             result = await self._db.relocate_folder_logically(
                 folder_id, kb_id=kb_id, name=folder["name"], parent_id=target_parent_id, expected_path=folder["path"])
         except UniqueViolation as exc:
-            raise Duplicate("target folder already exists") from exc
+            raise Duplicate("目标位置已存在同名文件夹") from exc
         if result is None:
-            raise NotFound(folder_id)
+            raise NotFound(FOLDER_404)
         return result
 
     async def move_document(
@@ -175,14 +179,14 @@ class FolderService:
     ) -> dict[str, Any]:
         doc = await self._db.get_document_identity(document_id)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         kb_id = doc["kb_id"]
         await self._svc._assert_write(kb_id, user_id)
         new_dir = ""
         if target_folder_id is not None:
             folder = await self._db.get_folder(target_folder_id)
             if folder is None or folder["kb_id"] != kb_id:
-                raise NotFound(target_folder_id)
+                raise NotFound(FOLDER_404)
             new_dir = folder["path"]
         old_dir = doc["directory_path"] or ""
         if old_dir == new_dir:
@@ -190,7 +194,7 @@ class FolderService:
         try:
             result = await self._db.move_document_logically(document_id, target_folder_id=target_folder_id)
         except UniqueViolation as exc:
-            raise Duplicate("a document with this name already exists in the target folder") from exc
+            raise Duplicate("目标文件夹已存在同名文档，请先重命名后移动") from exc
         if result is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         return result

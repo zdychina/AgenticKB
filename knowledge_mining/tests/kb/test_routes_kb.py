@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from knowledge_mining.mining.kb.routes.kbs import router as kb_router
+from knowledge_mining.mining.kb.services.kb_service import KB_404, KB_MANAGE_404, KB_WRITE_403
 from knowledge_mining.tests.conftest import kb_headers
 
 pytestmark = pytest.mark.asyncio
@@ -249,13 +250,15 @@ async def test_list_member_candidates(async_pool):
         assert "bob" not in names     # 已成员排除
         # 最小字段集:不泄露 site_role/status/has_password
         assert set(rows[0].keys()) == {"id", "username", "display_name"}
-        # 非成员对 private 库 → 404(不泄露存在性)
+        # 非成员对 private 库 → 404(不泄露存在性；BUG-08：detail 码+中文)
         r = await c.get(f"/api/kb/{kb_id}/members/candidates", headers=kb_headers("eve"))
         assert r.status_code == 404
+        assert r.json()["detail"] == KB_404
         # viewer 成员可见但不能写 → 候选接口要求写权限 → 403
         await c.post(f"/api/kb/{kb_id}/members", json={"username": "carol", "role": "viewer"}, headers=h_alice)
         r = await c.get(f"/api/kb/{kb_id}/members/candidates", headers=kb_headers("carol"))
         assert r.status_code == 403
+        assert r.json()["detail"] == KB_WRITE_403  # BUG-08：不再是英文+裸 id
 
 
 async def test_invalid_domain_rejected(async_pool):
@@ -273,3 +276,28 @@ async def test_duplicate_name_conflict(async_pool):
         # 不同 domain 同名允许
         r = await c.post("/api/kb", json={"domain": "generic", "name": "dup"}, headers=h)
         assert r.status_code == 201
+
+
+async def test_viewer_delete_kb_404_readable_detail(async_pool):
+    """BUG-08：viewer 删库 → 404 与「不存在」同文案（反探测不破）+ 可执行提示。"""
+    async with await _client(async_pool) as c:
+        h_alice, h_bob = kb_headers("alice"), kb_headers("bob")
+        kb_id = (await c.post(
+            "/api/kb", json={"domain": DOMAIN, "name": "priv-del", "visibility": "private"},
+            headers=h_alice,
+        )).json()["id"]
+        await c.get(f"/api/kb?domain={DOMAIN}", headers=h_bob)  # bob upsert 进 kb_users
+        await c.post(
+            f"/api/kb/{kb_id}/members", json={"username": "bob", "role": "viewer"}, headers=h_alice,
+        )
+        # viewer 删库：权限检查在 confirm_name 之前 → 404（不泄露存在性）
+        r = await c.request(
+            "DELETE", f"/api/kb/{kb_id}", json={"confirm_name": "priv-del"}, headers=h_bob)
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"] == KB_MANAGE_404
+        # 真不存在的库：同码同文案（反探测不被破坏）
+        r = await c.request(
+            "DELETE", "/api/kb/deadbeefdeadbeefdeadbeefdeadbeef",
+            json={"confirm_name": "whatever"}, headers=h_bob)
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"] == KB_MANAGE_404

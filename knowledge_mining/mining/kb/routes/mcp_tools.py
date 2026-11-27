@@ -35,7 +35,9 @@ from knowledge_mining.mining.kb.services.document_service import (
     ContentRevisionConflict, UploadTooLarge,
     is_upload_archive,
 )
-from knowledge_mining.mining.kb.services.kb_service import Duplicate, Forbidden, NotFound
+from knowledge_mining.mining.kb.services.kb_service import (
+    DOC_404, KB_404, KB_WRITE_403, Duplicate, Forbidden, NotFound,
+)
 from knowledge_mining.mining.services.retrieval_records import RetrievalRecordService
 
 logger = logging.getLogger(__name__)
@@ -135,7 +137,7 @@ async def _user_id(kbdb: KbDB, username: str) -> str:
 async def _visible_kb(kbdb: KbDB, user_id: str, kb_id: str) -> None:
     if not await kbdb.is_visible(kb_id=kb_id, user_id=user_id):
         # 不泄露存在性——与 KB 族路由同语义
-        raise HTTPException(404, f"knowledge base not found: {kb_id}")
+        raise HTTPException(404, KB_404)
 
 
 async def _key_scope(kbdb: KbDB, username: str, key_id: str) -> tuple[str, dict]:
@@ -295,7 +297,7 @@ async def list_documents(
     await _visible_kb(kbdb, user_id, kb_id)
     if kb_id not in await kbdb.key_open_kb_ids(key_id=key_id):
         # 钥匙开放集之外的库：与不可见同语义（404 防探测）
-        raise HTTPException(404, f"knowledge base not found: {kb_id}")
+        raise HTTPException(404, KB_404)
     try:
         docs = await kbdb.list_documents_in_kb(
             kb_id=kb_id, query=query, directory_prefix=directory_prefix,
@@ -330,7 +332,7 @@ async def browse_directory(
     kb_id = str(body.get("kb_id") or "")
     await _visible_kb(kbdb, user_id, kb_id)
     if kb_id not in await kbdb.key_open_kb_ids(key_id=key_id):
-        raise HTTPException(404, f"knowledge base not found: {kb_id}")
+        raise HTTPException(404, KB_404)
     directory = _validated_directory(body.get("directory"))
     try:
         limit = max(1, min(int(body.get("limit") or 50), 200))
@@ -339,7 +341,7 @@ async def browse_directory(
         raise HTTPException(422, "limit/offset 必须是整数。")
     kb = await kbdb.get_kb(kb_id)
     if kb is None:
-        raise HTTPException(404, f"knowledge base not found: {kb_id}")
+        raise HTTPException(404, KB_404)
 
     # 直属子目录：父路径 == 当前目录（根=上层 name 为 "" 的顶层目录）；空目录可见
     folders = await kbdb.list_folders(kb_id)
@@ -396,9 +398,9 @@ async def begin_upload(
     await _visible_kb(kbdb, user_id, kb_id)
     if kb_id not in await kbdb.key_open_kb_ids(key_id=key_id):
         # 钥匙开放集之外的库：与不可见同语义（404 防探测）
-        raise HTTPException(404, f"knowledge base not found: {kb_id}")
+        raise HTTPException(404, KB_404)
     if not await kbdb.can_write(kb_id=kb_id, user_id=user_id):
-        raise HTTPException(403, "only owner or editor may upload")
+        raise HTTPException(403, KB_WRITE_403)
     filename = _validated_filename(body.get("filename"))
     directory = _validated_directory(body.get("directory"))
     access_record_id = str(body.get("access_record_id") or "")
@@ -429,7 +431,7 @@ async def begin_upload(
         expected_revision = raw_revision
         doc = await kbdb.get_document_identity(document_id)
         if doc is None or doc.get("kb_id") != kb_id:
-            raise HTTPException(404, f"document not found: {document_id}")
+            raise HTTPException(404, DOC_404)
         target_suffix = Path(str(doc.get("document_name") or "")).suffix.lower()
         if Path(filename).suffix.lower() != target_suffix:
             raise HTTPException(
@@ -545,10 +547,11 @@ async def upload_direct(
             )
         except NotFound as exc:
             # 票据 TTL 窗口内被删/库不可见——与库族路由同防探测口径
-            raise await _fail(404, f"document not found: {exc}", "upload_failed")
+            # （服务层消息已带码+中文，直接透传）
+            raise await _fail(404, str(exc), "upload_failed")
         except Forbidden:
             raise await _fail(
-                403, "当前身份无权替换该文件（需要库的编辑权限）。", "upload_failed")
+                403, KB_WRITE_403, "upload_failed")
         except ContentRevisionConflict as exc:
             raise await _fail(
                 409, f"{exc} 请重新读取该文档的 content_revision 后重试。",
@@ -609,16 +612,16 @@ async def upload_direct(
             413, f"file too large（上限 {exc.limit_bytes} 字节）"
         ) from exc
     except NotFound as exc:
-        # codex P2-1：票据 TTL 窗口内库被删——与库族路由同防探测口径（404）
+        # codex P2-1：票据 TTL 窗口内库被删——与库族路由同防探测口径（404）；
+        # 服务层消息已带码+中文，直接透传
         await _complete_upload_access_record(
             request, entry, success=False, error_code="kb_not_found")
-        raise HTTPException(404, f"knowledge base not found: {exc}") from None
+        raise HTTPException(404, str(exc)) from None
     except Forbidden:
         # 签票后写权限被收回——票据有效但身份已无编辑权（403）
         await _complete_upload_access_record(
             request, entry, success=False, error_code="write_forbidden")
-        raise HTTPException(
-            403, "当前身份无权上传到该库（需要库的编辑权限）。") from None
+        raise HTTPException(403, KB_WRITE_403) from None
     except (UniqueViolation, Duplicate) as exc:
         # 同目录同名：与网页上传同映射（409 幂等冲突，不裸抛 500）
         await _complete_upload_access_record(

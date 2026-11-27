@@ -31,6 +31,7 @@ from knowledge_mining.mining.infra.upload_config import UploadConfig
 from knowledge_mining.mining.kb.auth import current_user
 from knowledge_mining.mining.kb.deps import get_kb_db
 from knowledge_mining.mining.kb.db import KbDB
+from knowledge_mining.mining.kb.services.kb_service import KB_404, KB_WRITE_403
 from knowledge_mining.mining.workflow.repositories.domain_run_repository import (
     AsyncDomainRunRepository,
 )
@@ -87,9 +88,9 @@ async def mine_kb(
     kb = await kbdb.get_kb(kb_id)
     if kb is None or not await kbdb.is_visible(kb_id=kb_id, user_id=user["id"]):
         # 看不到 → 404（不泄露存在性）
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     if not await kbdb.can_write(kb_id=kb_id, user_id=user["id"]):
-        raise HTTPException(403, "only owner or editor may trigger mining")
+        raise HTTPException(403, KB_WRITE_403)
 
     mining_workflow_id = kb.get("mining_workflow_id")
     if not mining_workflow_id:

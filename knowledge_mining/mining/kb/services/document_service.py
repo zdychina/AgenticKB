@@ -32,7 +32,9 @@ from knowledge_mining.mining.contracts.storage.types import ObjectLocation, PutO
 from knowledge_mining.mining.infra.object_store.keys import build_object_key
 from knowledge_mining.mining.kb.db import KbDB
 from knowledge_mining.mining.kb.services.folder_service import FolderService
-from knowledge_mining.mining.kb.services.kb_service import Duplicate, Forbidden, KbService, NotFound
+from knowledge_mining.mining.kb.services.kb_service import (
+    DOC_404, DOC_READ_403, KB_404, Duplicate, Forbidden, KbService, NotFound,
+)
 from knowledge_mining.mining.kb.storage import build_document_key, build_storage_path
 
 
@@ -310,7 +312,7 @@ class DocumentService:
     ) -> dict[str, Any]:
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         await self._svc._assert_write(kb_id, owner_id)  # IDOR 防护：写权限校验（admin/owner/editor）
         # Preserve the existing traversal validation without writing bytes to
         # the legacy upload root.  Object keys are content-addressed and never
@@ -340,7 +342,7 @@ class DocumentService:
         """
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         await self._svc._assert_write(kb_id, owner_id)
         build_storage_path(self._upload_root, kb_id, directory_path, filename)
         normalized_directory = _normalize_directory(directory_path)
@@ -468,7 +470,9 @@ class DocumentService:
             kb_id, normalized_directory, normalized_filename, include_deleted=True,
         )
         if soft_deleted is not None and soft_deleted.get("deleted_at") is None:
-            raise Duplicate("同目录已存在该文件；更新内容请使用替换当前文件。")
+            raise Duplicate(
+                f"同目录已存在同名文件「{normalized_filename}」；"
+                "更新内容请使用「替换当前文件」。")
         if soft_deleted is not None and soft_deleted.get("deleted_at") is not None:
             revived = await self._db.revive_document_from_storage(
                 soft_deleted["id"],
@@ -561,7 +565,7 @@ class DocumentService:
         """有界读取对象字节（onenet 预览渲染用；legacy 本地文档返回 None）."""
         doc = await self._db.get_document_identity(document_id)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         await self._assert_document_read(doc, user_id)
         if not doc.get("storage_object_id"):
             return None
@@ -569,7 +573,7 @@ class DocumentService:
             raise RuntimeError("KB object storage is not configured")
         record = await self._storage_objects.get(doc["storage_object_id"])
         if record is None or record.state != "AVAILABLE":
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         from knowledge_mining.mining.contracts.storage.types import ObjectLocation
 
         stream = self._object_store.get_stream(ObjectLocation(
@@ -734,7 +738,7 @@ class DocumentService:
 
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         await self._svc._assert_write(kb_id, owner_id)  # IDOR 防护：写权限校验（admin/owner/editor）
         # codex P2-2（58号二审）：base_directory 解压前复核存在——签票后目录被删时，
         # 普通文件路径会被 assert_directory_exists 拒，而归档的 ensure_folder_path
@@ -905,12 +909,12 @@ class DocumentService:
             return
         if await self._db.document_readable_by_user(str(doc["id"]), user_id):
             return
-        raise Forbidden(str(doc["id"]))
+        raise Forbidden(DOC_READ_403)
 
     async def get_document(self, *, document_id: str, user_id: str) -> dict[str, Any]:
         doc = await self._db.get_document_identity(document_id)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         await self._assert_document_read(doc, user_id)
         self._fill_meta(doc)
         return doc
@@ -926,7 +930,7 @@ class DocumentService:
         """
         doc = await self._db.get_document_identity(document_id)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         kb_id = doc["kb_id"]
         await self._svc._assert_write(kb_id, user_id)
         base = (self._upload_root / kb_id).resolve()
@@ -946,7 +950,7 @@ class DocumentService:
         """恢复软删文档：身份行与对象指针原样回来。"""
         doc = await self._db.get_document_identity(document_id, include_deleted=True)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         await self._svc._assert_write(doc["kb_id"], user_id)
         if doc.get("deleted_at") is None:
             return doc  # 幂等：本来就没删
@@ -964,7 +968,7 @@ class DocumentService:
     ) -> dict[str, Any]:
         doc = await self._db.get_document_identity(document_id)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         await self._svc._assert_write(doc["kb_id"], user_id)
         try:
             return await self._db.update_document_identity(
@@ -983,7 +987,7 @@ class DocumentService:
             raise ValueError("expected_revision must be a non-negative integer")
         doc = await self._db.get_document_identity(document_id)
         if doc is None or doc["kb_id"] != kb_id:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         await self._svc._assert_write(kb_id, user_id)
         if doc.get("content_revision") != expected_revision:
             raise ContentRevisionConflict("文件已发生变化，请刷新后重新选择替换。")
@@ -1019,7 +1023,7 @@ class DocumentService:
         """
         doc = await self._db.get_document_identity(document_id)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         await self._assert_document_read(doc, user_id)
         if not doc.get("storage_object_id"):
             return None
@@ -1027,7 +1031,7 @@ class DocumentService:
             raise RuntimeError("KB object storage is not configured")
         record = await self._storage_objects.get(doc["storage_object_id"])
         if record is None or record.state != "AVAILABLE":
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         from knowledge_mining.mining.contracts.storage.types import (
             ObjectLocation,
         )
@@ -1051,7 +1055,7 @@ class DocumentService:
         """
         doc = await self._db.get_document_identity(document_id)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         await self._assert_document_read(doc, user_id)
         if not doc.get("storage_object_id"):
             return None
@@ -1059,7 +1063,7 @@ class DocumentService:
             raise RuntimeError("KB object storage is not configured")
         record = await self._storage_objects.get(doc["storage_object_id"])
         if record is None or record.state != "AVAILABLE":
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         from knowledge_mining.mining.contracts.storage.types import (
             ObjectLocation,
         )
@@ -1077,14 +1081,14 @@ class DocumentService:
     async def download_path(self, *, document_id: str, user_id: str) -> Path:
         doc = await self._db.get_document_identity(document_id)
         if doc is None:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         await self._assert_document_read(doc, user_id)
         p = Path(doc["storage_path"])
         base = (self._upload_root / doc["kb_id"]).resolve()
         try:
             p.resolve().relative_to(base)
         except ValueError as exc:
-            raise NotFound(document_id) from exc
+            raise NotFound(DOC_404) from exc
         if not p.exists():
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         return p

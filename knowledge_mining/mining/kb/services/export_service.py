@@ -22,7 +22,7 @@ from knowledge_mining.mining.kb.services.export_tasks import (
     ExportTaskRepo, download_filename, request_cancel, start_export_task,
 )
 from knowledge_mining.mining.kb.services.kb_service import (
-    KbError, NotFound,
+    KB_404, KbError, NotFound,
 )
 
 #: 磁盘预检余量：put_stream 会在暂存文件旁再落一份副本（峰值≈2×包大小），
@@ -72,10 +72,10 @@ class ExportService:
 
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         # 读权限：看不到（他人 private / 软删）统一 404，不泄露存在性。
         if not await self._db.is_visible(kb_id=kb_id, user_id=user_id):
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
 
         # 幂等：同库已有排队/运行中任务 → 直接返回（防双击/多端重复打包）。
         active = await self._repo.get_active_task(kb_id)
@@ -125,7 +125,7 @@ class ExportService:
         kb = await self._db.get_kb(kb_id)
         if kb is None or not await self._db.is_visible(
                 kb_id=kb_id, user_id=user_id):
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         rows = await self._repo.list_tasks(kb_id=kb_id)
         if await self._db.can_manage_domain(user_id=user_id, domain=kb["domain"]):
             return rows
@@ -198,13 +198,13 @@ class ExportService:
         """详情/下载/删除的权限门：发起者或域管理员；他人统一 404."""
         row = await self._repo.get_task(task_id)
         if row is None:
-            raise NotFound(task_id)
+            raise NotFound("export_task_not_found: 导出任务不存在或已结束")
         if row.get("requested_by") == str(user_id):
             return row
         if await self._db.can_manage_domain(
                 user_id=user_id, domain=row["domain"]):
             return row
-        raise NotFound(task_id)
+        raise NotFound("export_task_not_found: 导出任务不存在或已结束")
 
 
 def _now_iso() -> str:

@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from knowledge_mining.mining.kb.routes.documents import router as docs_router
 from knowledge_mining.mining.kb.routes.kbs import router as kb_router
+from knowledge_mining.mining.kb.services.kb_service import KB_404, KB_WRITE_403
 from knowledge_mining.tests.conftest import kb_headers
 
 pytestmark = pytest.mark.asyncio
@@ -217,12 +218,21 @@ async def test_non_member_upload_to_private_kb_rejected(async_pool, upload_root)
             f"/api/kb/{kb_id}/documents", files={"file": ("x.txt", b"x")}, headers=h_b,
         )
         assert r.status_code == 404, r.text
+        # BUG-08：detail 不再是裸 kb_id，且与「真不存在」同文案（反探测不破）
+        assert r.json()["detail"] == KB_404
+        r = await c.post(
+            "/api/kb/deadbeefdeadbeefdeadbeefdeadbeef/documents",
+            files={"file": ("x.txt", b"x")}, headers=h_b,
+        )
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"] == KB_404
 
 
 async def test_viewer_upload_forbidden_403(async_pool, upload_root):
     """C3 回归：viewer 能读不能写 → 上传 403。
 
     用 private 库(public 库下 viewer 成员已被新语义拒绝——public 全员可读,viewer 冗余)。
+    BUG-08：detail 须带稳定码与可执行文案，不再是裸 kb_id。
     """
     async with await _client(async_pool) as c:
         h_a, h_b = kb_headers("alice"), kb_headers("bob")
@@ -238,6 +248,29 @@ async def test_viewer_upload_forbidden_403(async_pool, upload_root):
             f"/api/kb/{kb_id}/documents", files={"file": ("x.txt", b"x")}, headers=h_b,
         )
         assert r.status_code == 403, r.text
+        assert r.json()["detail"] == KB_WRITE_403
+        assert "联系" in r.json()["detail"]
+
+
+async def test_duplicate_upload_409_readable_detail(async_pool, upload_root):
+    """BUG-08：同库重名上传 409 的 detail 中文 + 文件名（此前是英文硬编码）。"""
+    async with await _client(async_pool) as c:
+        h_a = kb_headers("alice")
+        kb_id = (await c.post(
+            "/api/kb", json={"domain": DOMAIN, "name": "dup-409", "visibility": "private"}, headers=h_a,
+        )).json()["id"]
+        r = await c.post(
+            f"/api/kb/{kb_id}/documents", files={"file": ("dup.md", b"# a")}, headers=h_a,
+        )
+        assert r.status_code == 201, r.text
+        r = await c.post(
+            f"/api/kb/{kb_id}/documents", files={"file": ("dup.md", b"# b")}, headers=h_a,
+        )
+        assert r.status_code == 409, r.text
+        detail = r.json()["detail"]
+        assert "dup.md" in detail
+        assert "同名" in detail
+        assert "already exists" not in detail
 
 
 async def test_editor_and_owner_can_upload_201(async_pool, upload_root):

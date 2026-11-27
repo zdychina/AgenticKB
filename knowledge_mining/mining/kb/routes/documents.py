@@ -29,7 +29,9 @@ from knowledge_mining.mining.kb.services.document_service import (
 )
 from knowledge_mining.mining.kb.services.folder_service import FolderService
 from knowledge_mining.mining.kb.services import auto_mine
-from knowledge_mining.mining.kb.services.kb_service import Duplicate, Forbidden, NotFound
+from knowledge_mining.mining.kb.services.kb_service import (
+    DOC_404, KB_404, Duplicate, Forbidden, NotFound,
+)
 
 router = APIRouter(prefix="/api/kb/{kb_id}/documents", tags=["kb-documents"])
 
@@ -85,7 +87,7 @@ async def document_knowledge(
     """文档当前知识（文件详情多 tab 用）：原始预览之外的切片/检索单元/实体提及。
     KB 无 build 或文档未入选 → {"mined": False}，前端只显原始预览。"""
     if not await kbdb.is_visible(kb_id=kb_id, user_id=user["id"]):
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     return await kbdb.get_document_knowledge(kb_id, doc_id)
 
 
@@ -111,11 +113,11 @@ async def document_parse_result(
             422, "view must be 'current_serving' or 'latest_revision'"
         )
     if not await kbdb.is_visible(kb_id=kb_id, user_id=user["id"]):
-        raise HTTPException(404, "Document not found")
+        raise HTTPException(404, DOC_404)
     document = await kbdb.get_document_identity(document_id)
     # 47 号引用：读口径放宽——自有 OR 被本库引用（写路径不变，仍验 kb 归属）
     if document is None or not await kbdb.document_in_kb_or_referenced(kb_id, document_id):
-        raise HTTPException(404, "Document not found")
+        raise HTTPException(404, DOC_404)
     service = await get_parse_result_service(request, domain=document["domain"])
     from knowledge_mining.mining.contracts.storage.errors import StorageObjectMissing
 
@@ -193,11 +195,14 @@ async def upload_document(
         raise _map_error(exc) from None
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    except (UniqueViolation, Duplicate) as exc:
-        # KB 内同名文档已存在（uq_asset_documents_kb_key）——幂等冲突给 409，
-        # 而不是把 SQL 异常裸抛成 500。
+    except Duplicate as exc:
+        # 服务层中文文案语义各自准确（活跃重名 / 软删复活竞态）——原样透传
+        raise HTTPException(409, str(exc)) from None
+    except UniqueViolation as exc:
+        # 竞态兜底：登记与唯一键约束之间的窗口（uq_asset_documents_kb_key）
+        # ——幂等冲突给 409，而不是把 SQL 异常裸抛成 500。
         raise HTTPException(
-            409, f"Document named {filename!r} already exists in this KB"
+            409, f"同名文档已存在：{filename}（请先删除或使用「替换内容」）"
         ) from None
 
     # 57号D4：上传成功自动入队挖掘。单文件/同步归档内容已全部落库——立即入队；
@@ -438,7 +443,7 @@ async def delete_document(
         await svc._svc._assert_write(kb_id, user["id"])  # noqa: SLF001
         summary = await purge.purge_documents(kb_id, [document_id])
         if not summary["deleted_documents"]:
-            raise NotFound(document_id)
+            raise NotFound(DOC_404)
         return {"ok": True, "reclaimed_snapshots": summary["reclaimed_snapshots"],
                 "reclaimed_objects": summary["reclaimed_objects"]}
     except (NotFound, Forbidden) as exc:

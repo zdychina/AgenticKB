@@ -15,6 +15,7 @@ from knowledge_mining.mining.kb.deps import (
     get_copy_service, get_kb_db, get_kb_service, get_purge_service,
 )
 from knowledge_mining.mining.kb.services.kb_service import (
+    KB_404, KB_MANAGE_404, KB_WRITE_403,
     Duplicate, DomainNotBound, Forbidden, InvalidDomain, InvalidName, InvalidVisibility,
     KbService, NotFound,
 )
@@ -259,8 +260,8 @@ async def delete_kb(
     )
     kb = await kbdb.get_kb(kb_id, include_deleted=True)
     if kb is None or not await kbdb.can_restore(kb_id=kb_id, user_id=user["id"]):
-        # 不向非属主泄露已删私有库的存在
-        raise HTTPException(404, f"KB {kb_id} not found")
+        # 不向非属主泄露已删私有库的存在（BUG-08：同码补可执行提示，不泄露存在性）
+        raise HTTPException(404, KB_MANAGE_404)
     confirm = (body.confirm_name if body else "") or ""
     if confirm != kb.get("name"):
         raise HTTPException(422, "confirm_name_mismatch: 需输入库全名确认")
@@ -312,7 +313,7 @@ async def get_kb_quality(
     无 DDL、无写路径；作为重挖决策与 A4 评测（来源可解析率分母）的输入。
     """
     if not await kbdb.is_visible(kb_id=kb_id, user_id=user["id"]):
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     return await kbdb.get_kb_quality(kb_id)
 
 
@@ -324,7 +325,7 @@ async def list_kb_runs(
 ):
     """本 KB 的挖掘记录（KB「挖掘」tab 用，最新在前）。"""
     if not await kbdb.is_visible(kb_id=kb_id, user_id=user["id"]):
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     return await kbdb.list_kb_runs(kb_id)
 
 
@@ -371,9 +372,9 @@ async def list_member_candidates(
     admin 经 can_write 内的 EXISTS 短路放行。
     """
     if not await kbdb.is_visible(kb_id=kb_id, user_id=user["id"]):
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     if not await kbdb.can_write(kb_id=kb_id, user_id=user["id"]):
-        raise HTTPException(403, f"write access required for KB {kb_id}")
+        raise HTTPException(403, KB_WRITE_403)
     return await kbdb.list_member_candidates(kb_id=kb_id, q=q)
 
 

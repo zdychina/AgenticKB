@@ -20,6 +20,7 @@ from knowledge_mining.mining.api.domain_scope import require_domain
 from knowledge_mining.mining.kb.auth import current_user, require_admin
 from knowledge_mining.mining.kb.db import KbDB
 from knowledge_mining.mining.kb.deps import get_kb_db
+from knowledge_mining.mining.kb.services.kb_service import DOC_404, KB_404, KB_WRITE_403
 from knowledge_mining.mining.onenet.config import resolve_config  # noqa: F401（回退通道；测试打桩点）
 from knowledge_mining.mining.onenet.effective_config import resolve_effective_config
 from knowledge_mining.mining.onenet.fetch import Selection
@@ -385,7 +386,7 @@ async def kb_add_refs(
     if len(document_ids) > _MAX_REF_BATCH:
         raise HTTPException(422, f"document_ids exceeds {_MAX_REF_BATCH} per request")
     if not await kbdb.can_write(kb_id=kb_id, user_id=str(user["id"])):
-        raise HTTPException(403, "kb_write_required")
+        raise HTTPException(403, KB_WRITE_403)
     svc = _refs_service(request)
     from knowledge_mining.mining.onenet.refs_service import RefsError
     try:
@@ -411,7 +412,7 @@ async def kb_remove_refs(
     if not document_ids:
         raise HTTPException(422, "document_ids required")
     if not await kbdb.can_write(kb_id=kb_id, user_id=str(user["id"])):
-        raise HTTPException(403, "kb_write_required")
+        raise HTTPException(403, KB_WRITE_403)
     return await _refs_service(request).remove_refs(
         kb_id=kb_id, document_ids=document_ids)
 
@@ -428,11 +429,11 @@ async def kb_onenet_imports(
     返回行附产物文档（文件清单），供引用面板直接渲染。
     """
     if not await kbdb.is_visible(kb_id=kb_id, user_id=str(user["id"])):
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     kb = await kbdb.get_kb(kb_id)
     domain = str(kb.get("domain") or "") if kb else ""
     if not domain:
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     rows = await _repo(request).list_imports(domain=domain)
     done = [r for r in rows if r.get("status") == "done"]
     for r in done:
@@ -454,7 +455,7 @@ async def kb_list_refs(
     request: Request = None,  # type: ignore[assignment]
 ):
     if not await kbdb.is_visible(kb_id=kb_id, user_id=str(user["id"])):
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     refs = await _refs_service(request).list_refs(kb_id=kb_id)
     return {"refs": refs}
 
@@ -619,10 +620,10 @@ async def onenet_document_markdown(
 ):
     """一张网逻辑文档的 markdown 预览（JSONL 对象即时还原渲染，47 号 §五）."""
     if not await kbdb.is_visible(kb_id=kb_id, user_id=str(user["id"])):
-        raise HTTPException(404, f"KB {kb_id} not found")
+        raise HTTPException(404, KB_404)
     doc = await kbdb.get_document_identity(document_id)
     if doc is None or not await kbdb.document_in_kb_or_referenced(kb_id, document_id):
-        raise HTTPException(404, "Document not found")
+        raise HTTPException(404, DOC_404)
     from knowledge_mining.mining.kb.deps import get_document_service
     from knowledge_mining.mining.onenet.restore import render_file_markdown
 

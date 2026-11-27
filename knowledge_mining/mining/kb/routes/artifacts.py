@@ -268,7 +268,9 @@ async def create_artifact(
     except Exception as exc:
         raise HTTPException(400, f"invalid_domain:{domain_id}") from exc
     if not await adb.can_create_in_domain(user_id, domain_id):
-        raise HTTPException(403, f"domain_not_bound:{domain_id}")
+        # BUG-08：与 kbs.py 的 domain_not_bound 同码同形（此前是裸 domain id 尾巴）
+        raise HTTPException(
+            403, "domain_not_bound: 未绑定该知识域，请联系管理员分配")
     try:
         return await svc.create_artifact(
             user=user, domain_id=domain_id, kind=body.kind,

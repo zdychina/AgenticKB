@@ -22,6 +22,7 @@ from knowledge_mining.mining.kb.services.kb_service import (
     Duplicate,
     Forbidden,
     InvalidVisibility,
+    KB_404,
     KbError,
     NotFound,
     normalize_kb_name,
@@ -68,10 +69,10 @@ class CopyService:
         （new_name / visibility / description）——区分「未传」与「显式置 null」。"""
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         # 读权限：看不到（他人 private / 软删）统一 404，不泄露存在性。
         if not await self._db.is_visible(kb_id=kb_id, user_id=actor_id):
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         # 建库资格：副本落在源库同域，操作者须可在该域建库。
         if not await self._db.can_create_in_domain(
             user_id=actor_id, domain=kb["domain"],
@@ -144,7 +145,7 @@ class CopyService:
             ) from exc
         if result is None:
             # 校验后、锁前的竞态：源库已被软删/不存在——不泄露存在性。
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
 
         new_kb = result["kb"]
         new_kb["copy_source"] = copy_source

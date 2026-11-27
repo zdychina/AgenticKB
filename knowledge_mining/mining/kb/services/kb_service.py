@@ -52,6 +52,21 @@ class DomainNotBound(KbError):
     """用户未绑定该知识域（51号批次1建库收敛）。"""
 
 
+# ------------------------------------------------- 4xx 文案（BUG-08）
+# 稳定错误码 + 中文可执行文案，服务层抛、路由 _map_error 以 str(exc) 原样透传
+# （先例：kbs.py 的 domain_not_bound / copy_service 的 visibility_not_allowed）。
+# 约定：hex id 一律不进 detail（人可读名/路径可以）；404 族同码覆盖「不存在」
+# 与「无权限」两种情况——保持反探测口径，不泄露存在性。
+
+KB_404 = "kb_not_found_or_no_permission: 知识库不存在或你没有访问权限"
+KB_MANAGE_404 = "kb_not_found_or_no_permission: 知识库不存在或你没有管理权限"
+KB_WRITE_403 = "kb_write_required: 你不是该知识库的成员或没有编辑权限，请联系库拥有者添加"
+KB_OWNER_403 = "kb_owner_required: 该操作仅限知识库拥有者或站点管理员"
+DOC_404 = "doc_not_found_or_no_permission: 文档不存在、已删除或你没有访问权限"
+DOC_READ_403 = "doc_read_required: 你没有该文档的访问权限，请联系库拥有者开放"
+FOLDER_404 = "folder_not_found: 文件夹不存在或已删除"
+
+
 # ----------------------------------------------------------------- service
 
 class KbService:
@@ -91,7 +106,7 @@ class KbService:
     async def get_kb(self, *, kb_id: str, user_id: str) -> dict[str, Any]:
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         await self._assert_read(kb_id, user_id)
         # 批次4：详情附 readiness 四档（纯查询派生，失败不阻塞详情本身）
         try:
@@ -115,7 +130,7 @@ class KbService:
                 f"重命名失败：目标名称「{fields.get('name')}」在你的活跃知识库中已存在"
             ) from exc
         if updated is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         return updated
 
     async def transfer_owner(
@@ -128,9 +143,10 @@ class KbService:
     ) -> dict[str, Any]:
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         if not await self._db.can_restore(kb_id=kb_id, user_id=actor_id):
-            raise Forbidden("owner_transfer_actor_forbidden")
+            raise Forbidden(
+                "owner_transfer_actor_forbidden: 仅库拥有者或站点管理员可以转让知识库")
         try:
             updated = await self._db.transfer_kb_owner(
                 kb_id=kb_id,
@@ -140,20 +156,27 @@ class KbService:
             )
         except UserDeletionConflict as exc:
             if exc.code == "kb_not_found":
-                raise NotFound(kb_id) from None
+                raise NotFound(KB_404) from None
             if exc.code == "owner_target_not_found":
-                raise NotFound(exc.code) from None
+                raise NotFound(
+                    "owner_target_not_found: 目标接收用户不存在或未激活") from None
             if exc.code == "owner_target_not_domain_bound":
-                raise Forbidden(exc.code) from None
+                raise Forbidden(
+                    "owner_target_not_domain_bound: 目标用户未绑定该知识域，"
+                    "请联系管理员分配") from None
             if exc.code in {
                 "owner_transfer_actor_forbidden",
                 "owner_target_inactive",
                 "owner_previous_inactive",
             }:
-                raise Forbidden(exc.code) from None
-            raise Forbidden("owner_transfer_forbidden") from None
+                raise Forbidden(
+                    f"{exc.code}: 知识库转让未完成，涉及用户状态已变化，"
+                    "请刷新后重试") from None
+            raise Forbidden("owner_transfer_forbidden: 知识库转让被拒绝，请刷新后重试") from None
         except UniqueViolation as exc:
-            raise Duplicate("new_owner_has_same_name_kb") from exc
+            raise Duplicate(
+                "new_owner_has_same_name_kb: 目标用户名下已有同名活跃知识库，"
+                "请先让其重命名或删除") from exc
         return updated
 
     async def list_owner_candidates(
@@ -161,21 +184,21 @@ class KbService:
     ) -> list[dict[str, Any]]:
         kb = await self._db.get_kb(kb_id)
         if kb is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         if not await self._db.can_restore(kb_id=kb_id, user_id=actor_id):
-            raise Forbidden(kb_id)
+            raise Forbidden(KB_OWNER_403)
         return await self._db.list_owner_candidates(kb_id=kb_id, q=q, limit=limit)
 
     async def soft_delete(self, *, kb_id: str, actor_id: str) -> dict[str, Any]:
         if not await self._db.is_visible(kb_id=kb_id, user_id=actor_id):
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         # Deleting the whole container is lifecycle administration, not an
         # ordinary editor write.  Only owner/site-admin may delete or restore.
         if not await self._db.can_restore(kb_id=kb_id, user_id=actor_id):
-            raise Forbidden(kb_id)
+            raise Forbidden(KB_OWNER_403)
         deleted = await self._db.soft_delete(kb_id)
         if deleted is None:
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         return deleted
 
     async def restore_kb(self, *, kb_id: str, actor_id: str) -> dict[str, Any]:
@@ -184,7 +207,7 @@ class KbService:
             kb_id=kb_id, user_id=actor_id,
         ):
             # Do not disclose deleted private KB existence to other users.
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         if kb.get("status") == "active":
             return kb
         try:
@@ -200,7 +223,7 @@ class KbService:
             current = await self._db.get_kb(kb_id, include_deleted=True)
             if current is not None and current.get("status") == "active":
                 return current
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         return restored
 
     # ----- members -----
@@ -214,7 +237,7 @@ class KbService:
         # 绕过 admin 准入控制。
         member = await self._db.get_user_by_username(username)
         if member is None:
-            raise NotFound(f"user {username!r} not found")
+            raise NotFound(f"user_not_found: 用户 {username} 不存在或未激活")
         # public 库全员可读,viewer 成员冗余(对 public 库只有 editor 成员还有写权限意义)。
         kb = await self._db.get_kb(kb_id)
         if kb and not await self._db.can_create_in_domain(
@@ -230,7 +253,7 @@ class KbService:
                 kb_id=kb_id, user_id=member["id"], role=role,
             )
         except UserDeletionConflict as exc:
-            raise NotFound(f"user {username!r} not found") from exc
+            raise NotFound(f"user_not_found: 用户 {username} 不存在或未激活") from exc
 
     async def list_members(self, *, kb_id: str, user_id: str) -> list[dict[str, Any]]:
         await self._assert_read(kb_id, user_id)
@@ -245,14 +268,14 @@ class KbService:
     async def _assert_read(self, kb_id: str, user_id: str) -> None:
         # 看不到（别人的 private / 软删 / 不存在）统一 NotFound——不泄露存在性。
         if not await self._db.is_visible(kb_id=kb_id, user_id=user_id):
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
 
     async def _assert_write(self, kb_id: str, user_id: str) -> None:
         # 先读权限：看不到 → NotFound（不泄露）；看得到但不能写 → Forbidden。
         if not await self._db.is_visible(kb_id=kb_id, user_id=user_id):
-            raise NotFound(kb_id)
+            raise NotFound(KB_404)
         if not await self._db.can_write(kb_id=kb_id, user_id=user_id):
-            raise Forbidden(kb_id)
+            raise Forbidden(KB_WRITE_403)
 
 
 def _validate_domain(domain: str) -> None:
