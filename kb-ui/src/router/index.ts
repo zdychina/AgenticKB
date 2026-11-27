@@ -156,6 +156,13 @@ const router = createRouter({
           name: 'settings',
           component: () => import('@/views/SettingsView.vue'),
         },
+        {
+          // BUG-09：未知路由兜底。放布局 children 末位——侧边栏/头部保持可用；
+          // 具名路由（含 kb/:kbId 等资源路由）按匹配得分优先，资源 404 仍走页面级业务态
+          path: ':pathMatch(.*)*',
+          name: 'not-found',
+          component: () => import('@/views/NotFoundView.vue'),
+        },
       ],
     },
   ],

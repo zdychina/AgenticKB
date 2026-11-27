@@ -16,4 +16,21 @@ describe('formal product routes', () => {
       expect(names.has(retired)).toBe(false)
     }
   })
+
+  // BUG-09：未知路由要有 404 兜底，且挂在布局内（侧边栏可用），不能白屏
+  it('catches unknown paths with a 404 route inside the layout', () => {
+    const route = router.getRoutes().find(item => item.name === 'not-found')
+    expect(route?.path).toBe('/:pathMatch(.*)*')
+    const resolved = router.resolve('/nope')
+    expect(resolved.name).toBe('not-found')
+    // matched 链以 / 布局父路由开头 → 外层 AppLayout 仍渲染
+    expect(resolved.matched.map(item => item.path)).toEqual(['/', '/:pathMatch(.*)*'])
+  })
+
+  it('still resolves named and resource routes ahead of the catch-all', () => {
+    expect(router.resolve('/nope').name).toBe('not-found')
+    expect(router.resolve('/kb/does-not-exist').name).toBe('kb-detail')
+    expect(router.resolve('/kb/a/doc/b').name).toBe('kb-doc-preview')
+    expect(router.resolve('/login').name).toBe('login')
+  })
 })

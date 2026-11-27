@@ -19,6 +19,11 @@ export const zhCommon = {
   'common.loadFailed': '加载失败',
   'common.requestFailed': '请求失败',
   'common.empty': '暂无数据',
+  // 404 兜底页（views/NotFoundView.vue）
+  'common.notFound.text': '页面不存在或已被移除',
+  'common.notFound.badRedirect': '登录后跳转的目标页面不存在',
+  'common.notFound.backHome': '返回首页',
+  'common.notFound.backPrev': '回到上一页',
   // 挖掘 run 状态（utils/runStatus.ts：概览+知识库共用）
   'common.runStatus.queued': '排队中',
   'common.runStatus.running': '运行中',

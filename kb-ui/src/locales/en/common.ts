@@ -20,6 +20,11 @@ export const enCommon: Record<keyof typeof zhCommon, string> = {
   'common.loadFailed': 'Failed to load',
   'common.requestFailed': 'Request failed',
   'common.empty': 'No data',
+  // 404 fallback page (views/NotFoundView.vue)
+  'common.notFound.text': 'Page not found or has been removed',
+  'common.notFound.badRedirect': 'The page you were redirected to after sign-in does not exist',
+  'common.notFound.backHome': 'Back to Home',
+  'common.notFound.backPrev': 'Go Back',
   'common.runStatus.queued': 'Queued',
   'common.runStatus.running': 'Running',
   'common.runStatus.completed': 'Completed',
