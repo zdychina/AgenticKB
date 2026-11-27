@@ -94,3 +94,38 @@ HTTPException(404, "kb_not_found_or_no_permission: 知识库不存在或你没�
 2. **`apiErrorDetail` 所在目录**：实际在 `kb-ui/src/api/proxyClient.ts:122`（测试 `kb-ui/src/api/__tests__/download.test.ts`），非 `src/utils/*`。
 
 补充（印证"同一根因"，修复面应覆盖服务层而非仅 `intake_upload`）：`Forbidden(裸id)` 是服务层普遍模式——`kb_service.py:166`（owner-candidates）、`kb_service.py:175`（soft_delete）、`document_service.py:908`（文档级读，裸 doc_id）；另有 `kbs.py:376` 的 403 英文带 id（member-candidates，`write access required for KB {kb_id}`）。只改上传一处会留下同类不一致。
+
+## 8 修复记录（2026-11-27，按 §4 建议 1-3 + 服务层全量统一）
+
+方案：`kb_service.py` 顶部集中定义「稳定错误码: 中文可执行文案」常量（KB_404 / KB_MANAGE_404 / KB_WRITE_403 / KB_OWNER_403 / DOC_404 / DOC_READ_403 / FOLDER_404），服务层抛、`_map_error` str(exc) 原样透传（同 `domain_not_bound` 先例）；hex id 一律不进 detail；404 族同码覆盖「不存在」与「无权限」，反探测口径不变；409 按既有 Duplicate 先例纯中文带名/路径。权限判定逻辑与 HTTP 状态码零改动。
+
+| 文件 | 改动 |
+|---|---|
+| `kb/services/kb_service.py` | 常量定义；全部 `NotFound(kb_id)`×11 / `Forbidden(kb_id)`×3 替换；add_member `user xxx not found`×2 中文化（`user_not_found:`）；transfer_owner 5 个纯码补中文尾；`new_owner_has_same_name_kb` 补中文 |
+| `kb/services/document_service.py` | `NotFound(kb_id)`×3→KB_404、`NotFound(document_id)`×14→DOC_404；`_assert_document_read`(908)→DOC_READ_403；471 活跃重名 Duplicate 补文件名「{filename}」 |
+| `kb/services/folder_service.py` | 全部 NotFound→FOLDER_404/DOC_404/KB_404；`Duplicate(f"{kb_id}/{path}")`×4→去 kb_id 留 path 的中文；英文 Duplicate×3 中文化；folder not empty / cannot move 英文 ValueError 中文化 |
+| `kb/services/export_service.py` | `NotFound(kb_id)`×3→KB_404；`NotFound(task_id)`×2→`export_task_not_found: 导出任务不存在或已结束` |
+| `kb/services/copy_service.py` | `NotFound(kb_id)`×3→KB_404（92 行 visibility_not_allowed 已达标未动） |
+| `kb/routes/kbs.py` | 删库 404→KB_MANAGE_404（管理措辞）；quality/runs/member-candidates 可见性 404→KB_404；376 英文 403→KB_WRITE_403 |
+| `kb/routes/documents.py` | 88→KB_404；114/118/625 族 "Document not found"→DOC_404；**上传 409 拆开**：`Duplicate→409 str(exc)` 透传（服务层中文语义各自准确）+ `UniqueViolation→409 同名文档已存在：{filename}（请先删除或使用「替换内容」）` |
+| `kb/routes/mining.py` | 90→KB_404；92 英文 403→KB_WRITE_403 |
+| `kb/routes/mcp_tools.py` | `knowledge base not found: {kb_id}`×5→KB_404；401/620/550 英文或固定中文 403→KB_WRITE_403；432→DOC_404；**615/548 改 `str(exc)` 直接透传**（防新文案被拼进英文句） |
+| `kb/routes/folders.py` | "folder not found"×2→FOLDER_404 |
+| `kb/routes/artifacts.py` | 271 `domain_not_bound:{domain_id}`→与 kbs.py:77 同码同形（码+中文） |
+| `mining/onenet/routes.py` | `KB {kb_id} not found`×4→KB_404；`403 "kb_write_required"` 纯码×2→KB_WRITE_403 常量（补中文尾）；"Document not found"→DOC_404 |
+| `tests/kb/test_mcp_tools_keys.py` | 两处 `knowledge base not found: {id}` 期望串→断言 KB_404 常量 |
+| `tests/kb/test_documents.py` | 非成员 404 用例补 detail==KB_404 + 真不存在库同文案（反探测不破）；viewer 403 用例补 detail==KB_WRITE_403+「联系」；新增 `test_duplicate_upload_409_readable_detail`（中文+文件名+无英文） |
+| `tests/kb/test_routes_kb.py` | member-candidates 404/403 用例补 detail 断言；新增 `test_viewer_delete_kb_404_readable_detail`（管理措辞 + 真不存在库同码同文案） |
+
+验证结果：
+
+- 真库（远程 kb_db_test，单进程，knowledge_mining/ 目录）：批次 A routes/documents/mcp_tools_keys **30 passed**；批次 B folders/move/copy/mining **39 passed**；批次 C purge/transfer/auto-mine/lifecycle/export×3/onenet **90 passed**；批次 D artifacts/mcp_keys **47 passed**——累计 **206 passed / 0 failed**。
+- 覆盖 §5 四条：1 viewer 上传 403 含 KB_WRITE_403+「联系」✅；2 viewer 删库 404 含「管理权限」且真不存在库同文案 ✅；3 重名 409 中文+文件名 ✅；4 反探测回归（非成员/不存在库/开放集外钥匙三处同文案）✅。
+- 前端零改动（apiErrorDetail 原样展示中文 detail 即生效）→ 无 npm build；Java 侧 grep 无文案依赖。
+- 端到端 curl 走查（§2 复现脚本反向验证）留待部署后执行（BUG-07 先例）。
+
+后续批次（同病不同族，本次未动）：
+
+- `ontology_extract_service.py:116/166/169/206/209`、`artifact_service.py` 的 `ArtifactNotFound/ArtifactForbidden(裸id)`（263/265/341/409）、`wiki_service.py:903`——Ontology/Artifact 两族有自己的异常映射器，裸 id 同样直达 detail，宜按本批同样口径补码+中文；
+- 前端 `managementError.ts` 扩 KB_WRITE_403 等新码白名单 + zh/en locale（当前原样展示中文 detail，已可读；扩码后可本地化）；
+- §4.4 的全量 `{"code","detail"}` 信封约定仍为方向性建议，未实施。
