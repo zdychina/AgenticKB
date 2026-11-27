@@ -102,3 +102,40 @@
 
 - §2 只列"近 7 天 / 近 30 天"，实际还有"近 90 天"档（`records.ts:18`）；
 - §3 "`operation='search'` 等"的"等"不准确——`calls` 的口径恰为仅 `operation='search'`，不含其他操作。
+
+## 8 修复记录（2026-11-27）
+
+方案：改名 + 口径统一双管齐下（§4 建议 1 主路径）。字段改名 `total_calls`→`all_operations`、`calls`→`search_calls`（不做兼容别名，消费方全在仓库内、前后端 deploy-sync 同步发布）；失败率统一检索口径——分子分母都收窄 `operation='search'`，即 `failure_rate = search_failed / search_calls`，与零结果率同分母。§4 补充的口径决策点由此落地。
+
+§7 勘误/补充的落地：
+
+- **更正 1（failure_rate 分母）**：原始计数 `failed` 同步改名 `search_failed` 且只计检索——否则 JSON 里全操作 `failed` 与检索口径 `failure_rate` 对不上，等于在 API 层复刻同一个混淆；`no_result` 不改名（本就由 FILTER 限定 search，`no_result_rate` 公式不变）。§5 验证 4 的场景由 repository 测试扩展 fixture 钉死（1 失败上传不计入失败率）；
+- **更正 2/3/4**：参数名/路径/行号属文档层面，已在 §7 更正，代码不涉及；
+- **补充（"检索调用"卡）**：卡片保留，副标题标口径（"仅检索"/"含读取、上传"/"分母：检索调用"），比率卡悬浮提示实际分子/分母（如"零结果 1 / 检索调用 10"）——即 §4 建议 2；趋势图插入第二条线"检索调用"成四线（全部调用/检索调用/零结果/失败）——即 §4 建议 3。
+
+连带修复（探索中发现）：`opsStats.shouldAlertNoResult` 的 20 次样本门槛原用 `queries`（全操作）把关检索口径的零结果率——又一处隐性混分母；门槛改用新增映射的 `search_calls`（比率的真实分母）。仪表盘"调用量"卡保持全操作语义（副标题"含读取、上传"），失败率告警阈值 0.1 不变（语义变为检索口径）。
+
+| 文件 | 改动 |
+|---|---|
+| `knowledge_mining/mining/infra/retrieval_records_db.py` | summary 主查询与 trend：别名改名、`search_failed` FILTER 加检索、两比率同分母 |
+| `knowledge_mining/mining/services/retrieval_records.py` | `_empty_summary` 键名镜像 |
+| `knowledge_mining/mining/infra/query_log_db.py` | 旧 /api/ops/usage 适配器读新键，输出形状不变（下游 kb 测试免改） |
+| `knowledge_mining/tests/test_retrieval_records_route.py` | fixture 与键集合断言改名 |
+| `knowledge_mining/tests/test_retrieval_records_repository.py` | 扩展 fixture（+1 失败检索、+1 失败上传），钉失败分子过滤与同分母比率 |
+| `kb-ui/src/types/retrievalRecords.ts`、`types/ops.ts` | 类型改名；`OpsUsageSummary` 增必填 `search_calls` |
+| `kb-ui/src/api/ops.ts` | 映射：`queries←all_operations`、`failed←search_failed`、增 `search_calls` |
+| `kb-ui/src/utils/opsStats.ts` | 告警门槛 `queries`→`search_calls`（附口径注释） |
+| `kb-ui/src/components/common/StatsCard.vue` | `sub` prop 补模板渲染（此前声明未渲染） |
+| `kb-ui/src/components/retrieval/RetrievalRecordsAnalysis.vue` | 六卡换字段+副标题、比率卡 el-tooltip、趋势四线 |
+| `kb-ui/src/components/retrieval/RetrievalRecordsPanel.vue` | 四卡同上（tooltip 对空摘要取 0 兜底） |
+| `kb-ui/src/components/dashboard/OpsPanel.vue` | 调用量/两张比率卡加副标题（复用 records.metric.* 键） |
+| `kb-ui/src/locales/{zh,en}/records.ts` | 新增 5 键：callsSub/searchCallsSub/rateDenomSub/两 Tip |
+| 前端测试 8 个文件 | fixture 改名/补 search_calls；en spec series 数组插 'Retrieval Calls'（zh 切换断言同步）；opsStats 增"门槛看 search_calls"用例 |
+| `docs/平台指南/14-检索.md` + `kb-ui/src/help/content/14-检索.md`（生成物） | 第 14 章新增"指标口径"节（§4 建议 4；第 16 章讲上游接入不加） |
+
+验证结果：
+
+- 后端单测：`test_retrieval_records_route.py` + `test_retrieval_records_repository.py` **55 passed**；`test_ops_usage_route.py` + `test_mcp_upload_access_record.py` **21 passed**；
+- 真库回归（远程测试 PG）：`tests/kb/test_ops_usage_queries.py` **21 passed**（适配器输出形状不变，免改全绿）；
+- 前端：`npm test`（vitest run）全量 **128 文件 / 966 用例通过**（新增 1 例）；`npm run build`（vue-tsc -b && vite build）通过；
+- §5 验收对照：1/3/4 由 repository 扩展 fixture 覆盖（场景 all_operations=4、search_calls=2、no_result_rate=1/2、failure_rate=1/2，失败上传不计入分子）；2（UI 卡片口径与接口一致）由组件 spec 的英文文案/series 名断言覆盖；浏览器端到端走查留待部署后执行（BUG-07/08/09/10 先例）。
