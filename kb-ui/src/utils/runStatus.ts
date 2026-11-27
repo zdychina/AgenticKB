@@ -41,6 +41,23 @@ export function isActiveRunStatus(status: string | null | undefined): boolean {
   return status === 'queued' || status === 'running'
 }
 
+/**
+ * BUG-07：completed 但有失败文档（部分成功）——列表黄标「完成（N 篇失败）」用。
+ * 以 metadata 透传的 has_failures/partial_success 为主，failed_count 兜底
+ * （标记字段上线前的旧 run 没有 metadata，但 failed_count 一直在列表里）。
+ */
+export function isPartialRun(run: {
+  status?: string | null
+  has_failures?: boolean | null
+  partial_success?: boolean | null
+  failed_count?: number | null
+}): boolean {
+  if (run.status !== 'completed') return false
+  return run.has_failures === true
+    || run.partial_success === true
+    || (run.failed_count ?? 0) > 0
+}
+
 export function processedDocumentCount(counts: {
   committed_count?: number | null
   failed_count?: number | null

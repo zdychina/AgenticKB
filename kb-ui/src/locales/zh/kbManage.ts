@@ -83,6 +83,7 @@ export const zhKbManage = {
   'kbManage.mining.noWorkflowWarn': '尚未选择挖掘范式。在「文件」tab 多选文档后点「挖掘选中」前，请先绑定一个已发布范式。',
   'kbManage.mining.tip': '点「整库挖掘」对本库文档发起挖掘；或在「文件」tab 多选文档 →「挖掘选中」。点下方任一任务查看实时进度与流水线。',
   'kbManage.mining.failedCount': '·失败 {n}',
+  'kbManage.mining.completedPartial': '完成（{n} 篇失败）',
   'kbManage.mining.progress': '进度',
   'kbManage.mining.stage': '当前阶段',
   'kbManage.mining.docsColumn': '文档（新/更/跳）',

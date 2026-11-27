@@ -271,6 +271,46 @@ async def test_list_kb_runs_includes_committed_count(async_pool):
     assert runs[0]["committed_count"] == 3
 
 
+async def test_list_kb_runs_surfaces_partial_failure_flags(async_pool):
+    """BUG-07：部分失败的 has_failures/partial_success 只在 metadata_json——列表须透传
+    两个布尔且不外泄其余 metadata 字段；全成功 run 两标记均为 False。"""
+    db = KbDB(async_pool)
+    owner = await db.upsert_user_by_username("alice")
+    kb = await db.create_kb(domain="cloud_core_network", name="K", owner_id=owner["id"])
+    async with async_pool.connection() as conn:
+        for suffix, meta in (
+            (
+                "partial",
+                '{"has_failures": true, "partial_success": true, "failed_count": 1,'
+                ' "committed_count": 1}',
+            ),
+            ("clean", "{}"),
+        ):
+            await conn.execute(
+                """INSERT INTO mining_runs
+                   (id, kb_id, input_path, domain, channel, status, current_stage, started_at,
+                    execution_engine, workflow_manifest_json, metadata_json,
+                    total_documents, new_count, updated_count, skipped_count,
+                    failed_count, committed_count)
+                   VALUES (%s, %s, %s, 'cloud_core_network', 'prod', 'completed', 'done',
+                           '2026-01-01T00:00:00+00:00',
+                           'workflow', '{}'::jsonb, %s::jsonb, 2, 0, 0, 0, 1, 1)""",
+                (f"run-{suffix}-{kb['id']}", kb["id"], f"/tmp/{suffix}-{kb['id']}", meta),
+            )
+    runs = {r["id"]: r for r in await db.list_kb_runs(kb["id"])}
+
+    partial = runs[f"run-partial-{kb['id']}"]
+    assert partial["status"] == "completed"
+    assert partial["has_failures"] is True
+    assert partial["partial_success"] is True
+    # 只透传两个布尔，metadata_json 本体（readiness 等内部字段）不出现在响应里
+    assert "metadata_json" not in partial
+
+    clean = runs[f"run-clean-{kb['id']}"]
+    assert clean["has_failures"] is False
+    assert clean["partial_success"] is False
+
+
 async def test_get_document_knowledge_hides_graph_assets(async_pool):
     """文档预览只返回本批启用的切片与检索单元，图资产继续留库但不暴露。"""
     db = KbDB(async_pool)

@@ -2053,21 +2053,32 @@ WITH latest AS (
     # KB 中心化挖掘（融合设计 §5.2）：本库挖掘记录 + 文档当前知识（供前端「挖掘」tab / 文件多 tab）。
 
     async def list_kb_runs(self, kb_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
-        """本 KB 的挖掘记录（mining_runs by kb_id），最新在前。"""
+        """本 KB 的挖掘记录（mining_runs by kb_id），最新在前。
+
+        BUG-07：部分失败 run 的标记（has_failures/partial_success）只在 metadata_json，
+        从这里透传两个布尔——不透传整个 metadata，避免暴露 readiness 等内部字段。
+        """
         async with self._pool.connection() as conn:
             cur = await conn.execute(
                 """SELECT id, status, current_stage, execution_engine,
                           workflow_id, workflow_version,
                           started_at, finished_at, error_summary,
                           total_documents, new_count, updated_count, skipped_count,
-                          failed_count, committed_count
+                          failed_count, committed_count, metadata_json
                    FROM mining_runs
                    WHERE kb_id = %s
                    ORDER BY started_at DESC
                    LIMIT %s""",
                 [kb_id, limit],
             )
-            return [dict(r) for r in await cur.fetchall()]
+            rows = [dict(r) for r in await cur.fetchall()]
+        for row in rows:
+            meta = row.pop("metadata_json") or {}
+            if isinstance(meta, str):  # run.py 同款防御：jsonb 通常已解析，字符串也能接
+                meta = json.loads(meta)
+            row["has_failures"] = bool(meta.get("has_failures", False))
+            row["partial_success"] = bool(meta.get("partial_success", False))
+        return rows
 
     async def get_current_serving_snapshot(
         self, kb_id: str, document_id: str,

@@ -84,6 +84,7 @@ export const enKbManage: Record<keyof typeof zhKbManage, string> = {
   'kbManage.mining.noWorkflowWarn': 'No mining paradigm selected. Bind a published paradigm before selecting documents in the "Files" tab and clicking "Mine Selected".',
   'kbManage.mining.tip': 'Click "Mine All" to mine every document in this base, or select documents in the "Files" tab → "Mine Selected". Click any task below for live progress and the pipeline.',
   'kbManage.mining.failedCount': '·{n} failed',
+  'kbManage.mining.completedPartial': 'Done ({n} failed)',
   'kbManage.mining.progress': 'Progress',
   'kbManage.mining.stage': 'Current Stage',
   'kbManage.mining.docsColumn': 'Docs (new/updated/skipped)',

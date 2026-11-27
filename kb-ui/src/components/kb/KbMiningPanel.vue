@@ -60,10 +60,10 @@
         style="cursor: pointer"
         @row-click="onRowClick"
       >
-        <el-table-column :label="t('common.status')" width="110">
+        <el-table-column :label="t('common.status')" width="150">
           <template #default="{ row }">
-            <el-tag :type="runStatusTagType(row.status)" size="small" effect="light">
-              {{ runStatusLabel(row.status) }}
+            <el-tag :type="runTagType(row)" size="small" effect="light">
+              {{ runTagLabel(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -148,6 +148,7 @@ import { useMiningWorkflowApi } from '@/api/miningWorkflow'
 import { apiErrorDetail } from '@/api/proxyClient'
 import {
   isActiveRunStatus,
+  isPartialRun,
   processedDocumentCount,
   runStatusLabel,
   runStatusTagType,
@@ -284,6 +285,17 @@ async function loadRuns() {
 
 function onRowClick(row: KbRunRecord) {
   router.push({ name: 'kb-run-detail', params: { kbId: props.kbId, runId: row.id } })
+}
+
+// ── BUG-07：completed 但部分失败 → 黄标「完成（N 篇失败）」，与全成功区分 ──
+function runTagType(row: KbRunRecord) {
+  return isPartialRun(row) ? 'warning' : runStatusTagType(row.status)
+}
+
+function runTagLabel(row: KbRunRecord): string {
+  return isPartialRun(row)
+    ? t('kbManage.mining.completedPartial', { n: row.failed_count ?? 0 })
+    : runStatusLabel(row.status)
 }
 
 function hasActiveRun(): boolean {

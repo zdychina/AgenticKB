@@ -222,6 +222,9 @@ export interface KbRunRecord {
   failed_count: number | null
   /** 已落库文档数（任务列表双色进度条用，避免 N+1 轮询 getRunProgress）。 */
   committed_count: number | null
+  /** BUG-07：部分失败标记（list_kb_runs 从 metadata_json 透传；旧数据可能缺失）。 */
+  has_failures?: boolean | null
+  partial_success?: boolean | null
 }
 
 /** 文档已挖掘知识的切片分段。 */
