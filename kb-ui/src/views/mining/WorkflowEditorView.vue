@@ -135,7 +135,12 @@
         </section>
 
         <section class="workflow-editor__section">
-          <WorkflowValidationPanel :local-issues="localIssues" :server-result="serverResult" />
+          <WorkflowValidationPanel
+            :local-issues="localIssues"
+            :server-result="serverResult"
+            :validating="validating"
+            :server-checked-at="serverCheckedAt"
+          />
         </section>
 
         <section class="workflow-editor__section">
@@ -221,6 +226,7 @@ const flowEdges = ref<MiningVueFlowEdge[]>([])
 const selectedNodeId = ref('')
 const selectedEdgeId = ref('')
 const serverResult = ref<MiningWorkflowValidationResult | null>(null)
+const serverCheckedAt = ref<string | null>(null)
 const readOnly = ref(false)
 const previewedVersion = ref<MiningWorkflowVersion | null>(null)
 const recoveryVisible = ref(false)
@@ -301,9 +307,17 @@ async function load() {
     undoStack.value = []
     redoStack.value = []
     recoveryVisible.value = false
+    invalidateServerResult()
   } catch (error) {
     ElMessage.error(`加载 Workflow 失败：${errorMessage(error)}`)
   }
+}
+
+// 校验结果只对"被校验的那张图"有效：任何真实改图（编辑、undo/redo、版本切换、
+// 重载）都使其失效，面板回 idle 态，避免旧结果误导发布（BUG-10）。
+function invalidateServerResult() {
+  serverResult.value = null
+  serverCheckedAt.value = null
 }
 
 function recordMutation(mutator: () => void) {
@@ -314,7 +328,7 @@ function recordMutation(mutator: () => void) {
   undoStack.value.push(previous)
   redoStack.value = []
   applyGraph(graph.value)
-  serverResult.value = null
+  invalidateServerResult()
 }
 
 function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
@@ -333,6 +347,7 @@ function undo() {
   if (!previous || readOnly.value) return
   redoStack.value.push(cloneGraph(graph.value))
   applyGraph(previous)
+  invalidateServerResult()
 }
 
 function redo() {
@@ -340,6 +355,7 @@ function redo() {
   if (!next || readOnly.value) return
   undoStack.value.push(cloneGraph(graph.value))
   applyGraph(next)
+  invalidateServerResult()
 }
 
 function defaultParams(definition: MiningOperatorDef): Record<string, unknown> {
@@ -576,11 +592,16 @@ async function saveDraft(): Promise<boolean> {
   }
 }
 
-async function validateOnServer(): Promise<MiningWorkflowValidationResult | null> {
+async function validateOnServer(options: { notify?: boolean } = {}): Promise<MiningWorkflowValidationResult | null> {
   validating.value = true
   syncGraphFromFlow()
   try {
     serverResult.value = await api.validate(props.id, cloneGraph(graph.value))
+    if (serverResult.value?.valid) {
+      serverCheckedAt.value = new Date().toTimeString().slice(0, 8)
+      // notify=false：发布流程的内部校验不重复提示，避免与"已发布"toast 叠加（BUG-10）
+      if (options.notify !== false) ElMessage.success('服务端校验通过')
+    }
     return serverResult.value
   } catch (error) {
     ElMessage.error(`校验失败：${errorMessage(error)}`)
@@ -595,7 +616,7 @@ async function publishWorkflow() {
   publishing.value = true
   try {
     if (dirty.value && !(await saveDraft())) return
-    const validation = await validateOnServer()
+    const validation = await validateOnServer({ notify: false })
     if (!validation?.valid) {
       ElMessage.warning('服务端校验未通过，不能发布')
       return
@@ -623,6 +644,7 @@ async function previewVersion(version: number) {
     selectedNodeId.value = ''
     selectedEdgeId.value = ''
     applyGraph(loaded.graph_json)
+    invalidateServerResult()
   } catch (error) {
     ElMessage.error(`加载版本失败：${errorMessage(error)}`)
   }
@@ -633,6 +655,7 @@ function exitPreview() {
   previewedVersion.value = null
   applyGraph(previewReturnGraph ?? savedGraph.value)
   previewReturnGraph = null
+  invalidateServerResult()
 }
 
 async function restoreVersion(version: number) {
@@ -642,6 +665,7 @@ async function restoreVersion(version: number) {
     workflow.value = restored
     savedGraph.value = cloneGraph(restored.draft_graph_json)
     applyGraph(restored.draft_graph_json)
+    invalidateServerResult()
     readOnly.value = false
     previewedVersion.value = null
     previewReturnGraph = null

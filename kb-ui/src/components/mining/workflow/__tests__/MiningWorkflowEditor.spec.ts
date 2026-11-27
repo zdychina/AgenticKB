@@ -88,6 +88,43 @@ describe('mining Workflow editor components', () => {
     expect(wrapper.text()).toContain('能力缺失')
   })
 
+  it('shows the server-pass state with timestamp and execution order (BUG-10)', () => {
+    const wrapper = shallowMount(WorkflowValidationPanel, {
+      props: {
+        localIssues: [],
+        serverResult: {
+          valid: true,
+          errors: [],
+          executionPlan: {
+            inputOrder: ['input_ingest_1'],
+            documentOrder: ['document_parse_2', 'asset_persist_3'],
+            globalOrder: ['mining_finalize_4'],
+          },
+        },
+        serverCheckedAt: '14:05:09',
+      },
+    })
+    expect(wrapper.get('.validation-panel__ok').text()).toContain('服务端校验通过')
+    expect(wrapper.get('.validation-panel__ok').text()).toContain('14:05:09')
+    expect(wrapper.get('.validation-panel__plan').text())
+      .toBe('执行顺序：input_ingest_1 → document_parse_2 → asset_persist_3 → mining_finalize_4')
+    expect(wrapper.get('.validation-panel__title .is-ok').text()).toBe('服务端通过')
+  })
+
+  it('shows the running state while a server validation is in flight (BUG-10)', () => {
+    const wrapper = shallowMount(WorkflowValidationPanel, {
+      props: { localIssues: [], serverResult: null, validating: true },
+    })
+    expect(wrapper.text()).toContain('服务端校验中…')
+    expect(wrapper.get('.validation-panel__title .is-running').text()).toBe('校验中…')
+  })
+
+  it('keeps the idle copy and a distinct local title before any server validation (BUG-10)', () => {
+    const wrapper = shallowMount(WorkflowValidationPanel, { props: { localIssues: [] } })
+    expect(wrapper.text()).toContain('本地规则通过；发布前仍需服务端校验。')
+    expect(wrapper.get('.validation-panel__title .is-ok').text()).toBe('本地通过')
+  })
+
   it('keeps version preview read-only and emits an explicit restore request', async () => {
     const wrapper = shallowMount(WorkflowVersionPreview, {
       props: { version: { version: 2, graph_hash: 'abc', release_notes: 'stable' } as any },

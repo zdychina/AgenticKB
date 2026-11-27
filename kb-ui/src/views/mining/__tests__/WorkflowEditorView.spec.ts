@@ -125,6 +125,38 @@ describe('mining Workflow editor', () => {
     state.api.validate.mockResolvedValueOnce({ valid: true, errors: [], executionPlan: {} })
     await vm.publishWorkflow()
     expect(state.api.publish).toHaveBeenCalledWith('wf', expect.objectContaining({ expected_revision: 3 }))
+    // 发布流程的内部校验静默（notify:false），只出现"已发布"toast（BUG-10）
+    expect(state.ui.success).toHaveBeenCalledTimes(1)
+    expect(state.ui.success).toHaveBeenCalledWith('已发布不可变新版本')
+  })
+
+  it('invalidates the server validation result on undo/redo (BUG-10)', async () => {
+    const wrapper = shallowMount(WorkflowEditorView, { props: { id: 'wf' } })
+    await flushPromises()
+    const vm = wrapper.vm as unknown as {
+      updateNodeParams: (nodeId: string, params: Record<string, unknown>) => void
+      validateOnServer: () => Promise<unknown>
+      undo: () => void
+      redo: () => void
+      serverResult: { valid: boolean } | null
+      serverCheckedAt: string | null
+    }
+
+    vm.updateNodeParams('edit', { limit: 8 }) // 建立可撤销历史
+    await vm.validateOnServer()
+    expect(vm.serverResult?.valid).toBe(true)
+    expect(vm.serverCheckedAt).toBeTruthy()
+    expect(state.ui.success).toHaveBeenCalledWith('服务端校验通过')
+
+    vm.undo()
+    expect(vm.serverResult).toBeNull()
+    expect(vm.serverCheckedAt).toBeNull()
+
+    await vm.validateOnServer()
+    expect(vm.serverResult?.valid).toBe(true)
+    vm.redo()
+    expect(vm.serverResult).toBeNull()
+    expect(vm.serverCheckedAt).toBeNull()
   })
 
   it('saves local changes first and publishes the resulting draft revision', async () => {
