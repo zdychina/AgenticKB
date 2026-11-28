@@ -1,11 +1,12 @@
 """FastMCP 3.x server —— 用户级 MCP（2026-08-31 工具族收敛：三件套）。
 
 一个服务进程，按密钥"变脸"：每个用户看到自己的工具开关、自己的开放库、
-自己改过的提示词与工具描述。鉴权/个性化统一在 middleware 层：
-- 无钥/错钥：tools/list 返回空清单、一切调用拒绝（不再匿名可见——批次5 遗留收口）
-- on_initialize：把用户的自定义 instructions 注入握手响应
-- on_list_tools：按开关过滤 + 描述文案替换
-- on_call_tool：开关检查；identity 注入 ContextVar 供工具函数取用
+自己改过的提示词与工具描述。鉴权分两层（BUG-13：连接期也拒钥）：
+- HTTP 层（http_auth.McpKeyTokenVerifier，fastmcp auth 框架，仅包 /mcp）：
+  无钥/错钥/轮换后旧钥 → 401、不建会话；/health 与 /upload 票据路由豁免
+- middleware 层：on_initialize 把用户的自定义 instructions 注入握手响应；
+  on_list_tools 按开关过滤 + 描述文案替换（无有效身份返回空清单）；
+  on_call_tool 逐调用验钥（会话内吊销/轮换即拒）并注入 ContextVar 供工具取用
 
 工具族（用户拍板"功能类似只是维度/层级不同必须合并"——第二轮收敛到三件套）：
 - search_knowledge：唯一检索入口（domain 只是校验参数——不传即钥匙绑定域）
@@ -33,6 +34,7 @@ from mcp.types import CallToolRequestParams, InitializeRequest, ListToolsRequest
 from mcp_server import __version__
 from mcp_server import tools as backend
 from mcp_server.client import search_knowledge as _search_knowledge
+from mcp_server.http_auth import McpKeyTokenVerifier
 from mcp_server.identity import (
     Identity,
     IdentityError,
@@ -303,6 +305,7 @@ mcp = FastMCP(
     "multi-domain-knowledge",
     instructions=DEFAULT_INSTRUCTIONS,
     middleware=[PersonalizationMiddleware()],
+    auth=McpKeyTokenVerifier(),  # BUG-13：连接期拒钥——/mcp 无效 key 401、不建 session
 )
 
 

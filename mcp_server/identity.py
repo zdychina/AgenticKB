@@ -139,14 +139,13 @@ def extract_bearer_token(headers) -> str | None:
     return token or None
 
 
-def require_identity(headers) -> Identity:
-    """强制鉴权入口：无钥/错钥/轮换后旧钥 → IdentityError（401 语义）。"""
-    token = extract_bearer_token(headers)
-    if token is None:
-        raise IdentityError(
-            "缺少 MCP 接入密钥：请在 Authorization 头携带 Bearer <密钥>。"
-            "密钥在平台「个人设置 → MCP 接入」生成。"
-        )
+def verify_key(token: str) -> Identity:
+    """验钥主体：错钥/轮换后旧钥/后端不可达/服务端未配置 → IdentityError。
+
+    BUG-13 起除 require_identity 外，http_auth 的 HTTP 层验钥也走这里——
+    两层共用同一验钥语义（含"空开放库 ≠ 无效钥"：open_kbs 为空照常返回
+    Identity，开放库问题留给业务层提示）。
+    """
     secret = _internal_auth_secret()
     if not secret:
         logger.error("internal_verify_secret 未就绪，无法验钥")
@@ -216,6 +215,17 @@ def require_identity(headers) -> Identity:
         key_id=str(data.get("key_id") or ""),
         key_domain=str(data.get("key_domain") or ""),
     )
+
+
+def require_identity(headers) -> Identity:
+    """强制鉴权入口：无钥/错钥/轮换后旧钥 → IdentityError（401 语义）。"""
+    token = extract_bearer_token(headers)
+    if token is None:
+        raise IdentityError(
+            "缺少 MCP 接入密钥：请在 Authorization 头携带 Bearer <密钥>。"
+            "密钥在平台「个人设置 → MCP 接入」生成。"
+        )
+    return verify_key(token)
 
 
 def resolve_kb_ids(identity: Identity, kb_names: list[str] | None) -> list[str]:
