@@ -28,6 +28,7 @@ from knowledge_mining.mining.onenet.restore import RULE_VERSION
 from knowledge_mining.mining.onenet.import_service import (
     OnenetImportError, OnenetImportService, OnenetRepo,
 )
+from knowledge_mining.mining.onenet.client import OnenetQueryError
 from knowledge_mining.mining.onenet.probe import probe_source, search_documents
 from knowledge_mining.mining.onenet.toc_scan import scan_toc
 
@@ -55,6 +56,20 @@ def _validated_source_id(raw) -> str:
         raise HTTPException(
             422, "invalid_source_id: 仅允许字母数字开头、64 位内的 [A-Za-z0-9_.-]")
     return sid
+
+
+def _onenet_upstream_502(e: OnenetQueryError) -> HTTPException:
+    """上游失败统一 502 稳定码+中文文案（BUG-14）.
+
+    异常文本只含稳定类别（client.py 已保证无上游报文/鉴权形态）；
+    鉴权类与上游故障分码，运维可区分凭据问题与网络/服务抖动。
+    """
+    logger.warning("onenet upstream failed: %s", e)
+    if str(e).startswith("onenet_auth_error"):
+        return HTTPException(
+            502, "onenet_auth_error: 一张网凭据失效或未授权，请检查一张网凭据配置")
+    return HTTPException(
+        502, "onenet_upstream_error: 一张网查询服务暂时不可用，请稍后重试")
 
 
 def _client_factory(request: Request):
@@ -134,6 +149,8 @@ async def onenet_search(
         )
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
+    except OnenetQueryError as e:
+        raise _onenet_upstream_502(e) from e
     finally:
         client.close()
     return {**out,
@@ -150,6 +167,8 @@ async def onenet_probe(
     client = await _client_factory(request)(str(body.get("domain") or "") or None)
     try:
         return await asyncio.to_thread(probe_source, client, source_id)
+    except OnenetQueryError as e:
+        raise _onenet_upstream_502(e) from e
     finally:
         client.close()
 
@@ -178,6 +197,8 @@ async def onenet_toc(
             probe_client = await make_client(domain)
             try:
                 probed = await asyncio.to_thread(probe_source, probe_client, source_id)
+            except OnenetQueryError as e:
+                raise _onenet_upstream_502(e) from e
             finally:
                 probe_client.close()
             if probed.get("parsed_version") == cached.get("parsed_version_seen"):
@@ -195,6 +216,8 @@ async def onenet_toc(
             client.close()
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+    except OnenetQueryError as e:
+        raise _onenet_upstream_502(e) from e
     await repo.put_toc_cache(
         domain=domain, source_id=source_id,
         parsed_version=toc.get("parsed_version"), toc=toc)
@@ -511,6 +534,8 @@ async def onenet_resync(
         )
     except ResyncError as e:
         raise HTTPException(409, str(e)) from e
+    except OnenetQueryError as e:
+        raise _onenet_upstream_502(e) from e
     finally:
         client.close()
 

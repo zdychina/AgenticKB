@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from knowledge_mining.mining.onenet import routes as onenet_routes
+from knowledge_mining.mining.onenet.client import OnenetQueryError
 from knowledge_mining.mining.onenet.config import OnenetConfig
 
 
@@ -137,7 +138,7 @@ class FakeImportService:
         return await self._repo.insert_import(**kw)
 
 
-def _client(monkeypatch, *, configured=True):
+def _client(monkeypatch, *, configured=True, client_cls=FakeScanClient):
     app = FastAPI()
     app.include_router(onenet_routes.router)
     repo = FakeRepo()
@@ -164,7 +165,7 @@ def _client(monkeypatch, *, configured=True):
         onenet_routes, "_repo", lambda request: repo)
     if configured:
         async def fake_make(domain=None):
-            return FakeScanClient()
+            return client_cls()
         monkeypatch.setattr(
             onenet_routes, "_client_factory", lambda request: fake_make)
         async def fake_import_service(request):
@@ -599,3 +600,97 @@ def test_resync_resolves_with_import_row_domain(monkeypatch):
     assert resp.status_code == 200
     assert isinstance(captured["client"], FakeScanClient)
     assert seen == ["cloud_core_network"]
+
+
+# ---------------------------------------------------------------- 上游失败统一 502（BUG-14）
+
+
+class UpstreamFailScanClient(FakeScanClient):
+    """上游故障注入：各查询路径抛稳定类别的 OnenetQueryError（无上游报文）。"""
+
+    def query_native(self, conditions=None, **kw):
+        raise OnenetQueryError("onenet_upstream_error: upstream_status=400")
+
+    def probe_source(self, sid):
+        raise OnenetQueryError("onenet_upstream_error: upstream_status=400")
+
+    def count_source(self, sid):
+        raise OnenetQueryError("onenet_upstream_error: upstream_status=400")
+
+
+class AuthFailScanClient(FakeScanClient):
+    """凭据失效注入：抛 onenet_auth_error（BUG-14 独立分类）。"""
+
+    def query_native(self, conditions=None, **kw):
+        raise OnenetQueryError("onenet_auth_error: token_status=401")
+
+
+def test_search_upstream_failure_502_stable_detail(monkeypatch):
+    """search 上游失败 → 502 稳定码+中文文案；不再裸 500，也不透出报文。"""
+    c, _ = _client(monkeypatch, client_cls=UpstreamFailScanClient)
+    resp = c.post("/api/onenet/search", json={
+        "conditions": [{"field": "doc_name", "fuzzy": False, "content": "UDG"}]})
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail.startswith("onenet_upstream_error")
+    assert "暂时不可用" in detail
+    assert "400" not in detail  # 上游状态码/报文不进响应
+
+
+def test_search_auth_failure_502_auth_code(monkeypatch):
+    c, _ = _client(monkeypatch, client_cls=AuthFailScanClient)
+    resp = c.post("/api/onenet/search", json={
+        "conditions": [{"field": "doc_name", "fuzzy": False, "content": "UDG"}]})
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert detail.startswith("onenet_auth_error")
+    assert "凭据" in detail
+
+
+def test_probe_upstream_failure_502(monkeypatch):
+    c, _ = _client(monkeypatch, client_cls=UpstreamFailScanClient)
+    resp = c.post("/api/onenet/probe", json={"source_id": "DOC1"})
+    assert resp.status_code == 502
+    assert resp.json()["detail"].startswith("onenet_upstream_error")
+
+
+def test_toc_upstream_failure_502(monkeypatch):
+    c, _ = _client(monkeypatch, client_cls=UpstreamFailScanClient)
+    resp = c.post("/api/onenet/toc", json={
+        "domain": "cloud_core_network", "source_id": "DOC1"})
+    assert resp.status_code == 502
+    assert resp.json()["detail"].startswith("onenet_upstream_error")
+
+
+def test_resync_upstream_failure_502(monkeypatch):
+    """重同步期上游失败（resync 内 probe/count 抛 OnenetQueryError）→ 502。"""
+    c, repo, _ = _domain_client(monkeypatch)
+    repo.imports["imp-1"] = {"id": "imp-1", "domain": "cloud_core_network",
+                             "source_id": "DOC1", "kb_id": "kb-pub",
+                             "created_by": "u-admin"}
+
+    async def fake_resync(**kw):
+        raise OnenetQueryError("onenet_upstream_error: upstream_status=504")
+
+    import knowledge_mining.mining.onenet.resync as resync_mod
+    monkeypatch.setattr(resync_mod, "resync", fake_resync)
+
+    class FakeImportSvc:
+        async def _import_file(self, **kw):
+            return "d1"
+
+    async def fake_import_service(request):
+        return FakeImportSvc()
+
+    monkeypatch.setattr(onenet_routes, "_import_service", fake_import_service)
+
+    import knowledge_mining.mining.kb.deps as deps
+
+    async def fake_doc_service(request):
+        return object()
+
+    monkeypatch.setattr(deps, "get_document_service", fake_doc_service)
+
+    resp = c.post("/api/onenet/imports/imp-1/resync")
+    assert resp.status_code == 502
+    assert resp.json()["detail"].startswith("onenet_upstream_error")

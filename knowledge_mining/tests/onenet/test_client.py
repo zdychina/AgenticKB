@@ -2,7 +2,8 @@
 """OnenetClient 单元测试（httpx.MockTransport，不触内网）.
 
 覆盖：token 获取/过期重取、原生/DSL 查询、count_source、part_range、
-fetch_source_chunk（sort/from 翻页/窗口上限/完整性）、退避重试。
+fetch_source_chunk（sort/from 翻页/窗口上限/完整性）、退避重试、
+上游非 2xx 稳定类别化（BUG-14：不重试 4xx、报文只进日志且脱敏）。
 """
 from __future__ import annotations
 
@@ -24,6 +25,16 @@ def _slice(nid: str, part_id: int, path="Pkg > L1 > L2") -> dict:
             "content": f"内容 {part_id}", "source_id": "DOC1"}
 
 
+#: BUG-14 现场的 S3 XML 错误页样例（含鉴权头回显）。
+S3_XML_ERROR = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    "<Error><Code>InvalidArgument</Code>"
+    "<Message>Unsupported Authorization Type</Message>"
+    "<RequestId>req-1</RequestId><HostId>host-1</HostId>"
+    "<Authorization>Bearer null</Authorization></Error>"
+)
+
+
 class FakeOnenet:
     """按 URL 分发的 MockTransport 处理器."""
 
@@ -35,6 +46,9 @@ class FakeOnenet:
         self.token_status_once = None  # 注入一次 token 端点异常状态码
         self.search_status_once = None  # 注义一次搜索端点异常状态码
         self.token_history: list[str | None] = []
+        self.token_result = "Basic dyn-token"  # token 端点 result 值（可置 None）
+        self.search_raw_once = None   # (status, text)：一次性原始报文（S3 XML 场景）
+        self.search_raw_repeat = None  # (status, text)：持续原始报文（重试耗尽场景）
         # DSL/原生查询的响应数据（search body -> response）
         self.responses: list[dict] = []
         self.repeat_last = False  # 耗尽后重复末条响应（持续异常/满页场景）
@@ -46,7 +60,7 @@ class FakeOnenet:
             if self.token_status_once is not None:
                 code, self.token_status_once = self.token_status_once, None
                 return httpx.Response(code, json={"error": "expired"})
-            return httpx.Response(200, json={"result": "Basic dyn-token"})
+            return httpx.Response(200, json={"result": self.token_result})
         if str(request.url) == self.search_url:
             self.token_history.append(request.headers.get("Authorization"))
             body = json.loads(request.content.decode("utf-8"))
@@ -54,6 +68,17 @@ class FakeOnenet:
             if self.search_status_once is not None:
                 code, self.search_status_once = self.search_status_once, None
                 return httpx.Response(code, json={"error": "boom"})
+            if self.search_raw_once is not None:
+                code, text = self.search_raw_once
+                self.search_raw_once = None
+                return httpx.Response(
+                    code, text=text,
+                    headers={"Content-Type": "application/xml"})
+            if self.search_raw_repeat is not None:
+                code, text = self.search_raw_repeat
+                return httpx.Response(
+                    code, text=text,
+                    headers={"Content-Type": "application/xml"})
             if self.responses and self._resp_idx < len(self.responses):
                 resp = self.responses[self._resp_idx]
                 self._resp_idx += 1
@@ -251,3 +276,86 @@ def test_request_failure_retries_then_raises(fake, monkeypatch):
     with pytest.raises(OnenetQueryError):
         c.query_native(page_size=1)
     assert len(sleeps) >= 2  # 退避发生过（最后一次失败不再白等，审查 LOW）
+
+
+# ---------------------------------------------------------------- BUG-14：上游非 2xx
+
+
+def test_4xx_fails_fast_without_body_leak(fake, caplog):
+    """BUG-14 现场复刻：400 + S3 XML（含鉴权头回显）。
+
+    - 异常文本只含稳定类别+状态码（无 XML/无 Authorization 形态）；
+    - 原始报文只进服务端日志，且鉴权回显脱敏；
+    - 4xx 不退避重试（不会自愈）。
+    """
+    fake.search_raw_once = (400, S3_XML_ERROR)
+    c = _client(fake)
+    with caplog.at_level("WARNING",
+                         logger="knowledge_mining.mining.onenet.client"):
+        with pytest.raises(OnenetQueryError) as ei:
+            c.query_native(page_size=1)
+    assert str(ei.value) == "onenet_upstream_error: upstream_status=400"
+    assert len(fake.search_requests) == 1  # 不重试
+    logged = "".join(r.getMessage() for r in caplog.records)
+    assert "InvalidArgument" in logged        # 报文在日志里可排障
+    assert "<Authorization>***" in logged     # 鉴权回显已脱敏
+    assert "Bearer null" not in logged
+    assert "Bearer null" not in str(ei.value)
+
+
+def test_persistent_401_classified_auth_error(fake):
+    """401 首次强制重取 token 后仍 401 → 归类 onenet_auth_error 快速失败。"""
+    fake.search_raw_repeat = (401, "denied")
+    c = _client(fake)
+    c.get_token()
+    with pytest.raises(OnenetQueryError, match="onenet_auth_error"):
+        c.query_native(page_size=1)
+    assert fake.token_requests == 2          # 原始获取 + 强制重取各一次
+    assert len(fake.search_requests) == 2    # 重取后只再试一次，不再退避
+
+
+def test_5xx_retried_then_recovers(fake, monkeypatch):
+    import knowledge_mining.mining.onenet.client as client_mod
+    sleeps: list[float] = []
+    monkeypatch.setattr(client_mod.time, "sleep", lambda s: sleeps.append(s))
+    fake.search_status_once = 502            # 一次 502，之后恢复
+    fake.responses = [{"total": 1, "searchResults": [_slice("n1", 1)]}]
+    c = _client(fake)
+    out = c.query_native(page_size=1)
+    assert out["total"] == 1
+    assert len(fake.search_requests) == 2    # 5xx 照旧退避重试
+    assert sleeps == [1.5]
+
+
+def test_5xx_exhausts_retries_status_only(fake, monkeypatch):
+    import knowledge_mining.mining.onenet.client as client_mod
+    sleeps: list[float] = []
+    monkeypatch.setattr(client_mod.time, "sleep", lambda s: sleeps.append(s))
+    fake.search_raw_repeat = (503, "busy")
+    c = _client(fake)
+    c.get_token()
+    with pytest.raises(OnenetQueryError,
+                       match=r"请求失败\(3次\): upstream_status=503"):
+        c.query_native(page_size=1)
+    assert len(fake.search_requests) == 3
+    assert sleeps == [1.5, 3.0]              # 最后一次失败不白等（审查 LOW）
+
+
+def test_token_endpoint_4xx_auth_error_no_search_sent(fake):
+    """凭据被拒：请求前失败（不发 search），稳定 auth 类别，不退避。"""
+    fake.token_status_once = 401
+    c = _client(fake)
+    with pytest.raises(OnenetQueryError,
+                       match=r"onenet_auth_error: token_status=401"):
+        c.query_native(page_size=1)
+    assert fake.token_requests == 1
+    assert fake.search_requests == []
+
+
+def test_token_empty_result_auth_error_no_search_sent(fake):
+    """token 端点 200 但 result 为空：同样请求前失败、不发 search。"""
+    fake.token_result = None
+    c = _client(fake)
+    with pytest.raises(OnenetQueryError, match="onenet_auth_error"):
+        c.query_native(page_size=1)
+    assert fake.search_requests == []

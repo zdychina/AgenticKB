@@ -6,7 +6,8 @@
 
 - ``requests`` → ``httpx``（transport 可注入，测试离线跑）；
 - 接口地址由 :class:`OnenetConfig` 提供（config.py）；
-- 异常统一 :class:`OnenetQueryError`（含真实原因，不吞错）。
+- 异常统一 :class:`OnenetQueryError`（含稳定错误类别，不吞错；上游原始
+  报文只进服务端日志且脱敏鉴权回显——BUG-14，绝不进异常文本/响应）。
 
 实测边界（务必遵守）：
 - total 默认封顶 10000；``track_total_hits=true`` 才有真实总数；
@@ -20,6 +21,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -28,6 +30,20 @@ import httpx
 from knowledge_mining.mining.onenet.config import OnenetConfig
 
 logger = logging.getLogger(__name__)
+
+#: 日志摘录里要脱敏的鉴权回显形态（BUG-14：Authorization 不进任何日志/异常文本）。
+_AUTH_ECHO_RES = (
+    re.compile(r"(?i)(<Authorization>)[^<]*"),   # S3 XML 错误页回显
+    re.compile(r"(?i)(Bearer\s+)[^\s'\"<>]+"),   # Bearer 头回显
+)
+
+
+def _log_excerpt(text: str, limit: int = 300) -> str:
+    """上游报文的日志摘录：脱敏鉴权回显 + 截断（BUG-14）。"""
+    out = text or ""
+    for rx in _AUTH_ECHO_RES:
+        out = rx.sub(r"\1***", out)
+    return out[:limit]
 
 #: 切片返回的全部字段（实测样例沉淀，供契约/入库 schema 参考）。
 SLICE_FIELDS = [
@@ -105,10 +121,23 @@ class OnenetClient:
             self._token_url,
             json={"appId": self.app_id, "credential": credential},
         )
-        res.raise_for_status()
-        token = (res.json() or {}).get("result")
+        if res.status_code >= 500:
+            res.raise_for_status()  # 瞬态：交 _post 的网络分支退避重试
+        if res.status_code >= 400:
+            # 凭据/配置类错误重试无意义；报文只进日志，不进异常文本（BUG-14）
+            logger.warning("onenet 动态 token 端点 %s: %r",
+                           res.status_code, _log_excerpt(res.text))
+            raise OnenetQueryError(
+                f"onenet_auth_error: token_status={res.status_code}")
+        try:
+            token = (res.json() or {}).get("result")
+        except ValueError:
+            token = None
         if not token:
-            raise OnenetQueryError("动态 token 获取失败: " + res.text[:300])
+            logger.warning("onenet 动态 token 获取失败（result 为空/非 JSON）: %r",
+                           _log_excerpt(res.text))
+            raise OnenetQueryError(
+                "onenet_auth_error: 动态 token 获取失败（result 为空/非 JSON）")
         self._token = token
         return self._token
 
@@ -126,20 +155,46 @@ class OnenetClient:
                 if r.status_code == 401 and attempt == 0:
                     self.get_token(force=True)  # token 过期重取后重试
                     continue
-                r.raise_for_status()
-                j = r.json()
-                if isinstance(j, dict) and "searchResults" in j:
-                    return j
-                if (isinstance(j, list) and j and isinstance(j[0], dict)
-                        and "searchResults" in j[0]):
-                    return j[0]  # 网关 list 包装
-                raise OnenetQueryError(
-                    "异常响应: " + json.dumps(j, ensure_ascii=False)[:300])
-            except (httpx.HTTPError, OnenetQueryError) as e:
+            except httpx.HTTPError as e:
+                # 网络层（含 token 端点 5xx 抛出的 HTTPStatusError）→ 退避重试
                 last_err = e
                 if attempt + 1 < self._retry:
                     # 最后一次失败不再白等 4.5s（审查 LOW）
                     time.sleep(1.5 * (attempt + 1))
+                continue
+            # 状态码/形状判定移出重试 try：以下失败按类别处理，不进上面的重试
+            # （BUG-14：4xx 不会自愈；原始报文只进服务端日志，截断+脱敏鉴权回显）。
+            if r.status_code >= 500:
+                logger.warning("onenet 上游 %s: %r",
+                               r.status_code, _log_excerpt(r.text))
+                last_err = OnenetQueryError(f"upstream_status={r.status_code}")
+                if attempt + 1 < self._retry:
+                    time.sleep(1.5 * (attempt + 1))
+                continue
+            if r.status_code >= 400:
+                logger.warning("onenet 上游 %s: %r",
+                               r.status_code, _log_excerpt(r.text))
+                kind = ("onenet_auth_error" if r.status_code in (401, 403)
+                        else "onenet_upstream_error")
+                raise OnenetQueryError(f"{kind}: upstream_status={r.status_code}")
+            j: Any = None
+            try:
+                j = r.json()
+            except ValueError:
+                pass
+            if isinstance(j, dict) and "searchResults" in j:
+                return j
+            if (isinstance(j, list) and j and isinstance(j[0], dict)
+                    and "searchResults" in j[0]):
+                return j[0]  # 网关 list 包装
+            # 200 但非 JSON / 形状异常：按瞬态退避重试（原行为），报文只进日志
+            logger.warning("onenet 非预期响应: %r", _log_excerpt(
+                r.text if j is None else json.dumps(j, ensure_ascii=False)))
+            last_err = OnenetQueryError(
+                "onenet_bad_shape: 响应非 JSON 或缺少 searchResults")
+            if attempt + 1 < self._retry:
+                time.sleep(1.5 * (attempt + 1))
+                continue
         raise OnenetQueryError(f"请求失败({self._retry}次): {last_err}")
 
     # ---------------------------------------------------------------- 查询
