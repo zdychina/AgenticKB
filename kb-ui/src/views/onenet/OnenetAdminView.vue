@@ -201,6 +201,7 @@ import {
   effectivePreviewPaths, filterFilesBySelection, minimalSubtreePaths, resolveRestoreMode,
 } from '@/utils/onenetSelection'
 import { useOnenetApi } from '@/api/onenet'
+import { apiErrorDetail } from '@/api/proxyClient'
 import type {
   OnenetCondition, OnenetImport, OnenetImportStatus, OnenetProbe,
   OnenetRestoreMode, OnenetRestoreModeChoice, OnenetRestorePreview,
@@ -630,8 +631,11 @@ function handleError(e: unknown) {
     ElMessage.error('知识一张网未配置')
     return
   }
-  const msg = (e as Error)?.message ?? String(e)
-  ElMessage.error(status ? `${status}: ${msg}` : msg)
+  // BUG-14：上游失败 502 的稳定码+中文文案在响应体 detail 里
+  // （onenet_upstream_error / onenet_auth_error），取回后呈现给用户。
+  void apiErrorDetail(e).then((msg) => {
+    ElMessage.error(status ? `${status}: ${msg}` : msg)
+  })
 }
 
 onMounted(reloadImports)
