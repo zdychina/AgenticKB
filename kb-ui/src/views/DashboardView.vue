@@ -22,7 +22,9 @@
       <div class="dash__block-head">
         <h3 class="dash__block-title">{{ t('dashboard.block.overview') }}</h3>
         <div class="dash__block-actions">
-          <span class="dash__scope">{{ t('dashboard.scope.overview', { n: stats?.kb_count ?? kbs.length }) }}</span>
+          <!-- 徽标的数据没到就不渲染，别拿 0 占位：慢网下「本域我可见的 0 个知识库」
+              会被读成数据丢了，而真相只是还没查完（下方卡片有骨架屏，这枚徽标原来漏了门）。 -->
+          <span v-if="stats || overviewLoaded" class="dash__scope">{{ t('dashboard.scope.overview', { n: stats?.kb_count ?? kbs.length }) }}</span>
           <el-button text type="primary" size="small" :loading="refreshing" @click="load">
             {{ t('dashboard.action.refresh') }}
           </el-button>
@@ -117,7 +119,8 @@
       <section class="dash__block">
         <div class="dash__block-head">
           <h3 class="dash__block-title">{{ t('dashboard.block.trend', { n: trendDays }) }}</h3>
-          <span class="dash__scope">
+          <!-- 同区块 1：合计未就绪不渲染——「共 0 篇 · 0 次挖掘」同样是没查完，不是没数据 -->
+          <span v-if="stats" class="dash__scope">
             {{ t('dashboard.scope.trendTotals', { docs: totals.documents, runs: totals.runs }) }}
           </span>
         </div>
