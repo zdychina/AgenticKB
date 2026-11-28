@@ -39,6 +39,7 @@ export interface ManagedUser extends AuthUser {
   has_password?: boolean
   domains: string[]
   domain_grants?: UserDomainGrant[]
+  needs_grants?: boolean
   deleted_at?: string | null
   deleted_by_user_id?: string | null
 }
