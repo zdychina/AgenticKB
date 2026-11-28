@@ -54,6 +54,7 @@ async def test_user_clearance_removes_permissions_keys_and_restores_same_identit
     assert restored["status"] == "disabled"
     assert restored["site_role"] == "member"
     assert restored["deleted_at"] is None
+    assert restored["needs_grants"] is True  # BUG-15：恢复后启用前须先授域（机器可读标记）
 
 
 async def test_user_clearance_blocks_any_retained_owned_kb(async_pool):

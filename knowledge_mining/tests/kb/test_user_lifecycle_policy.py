@@ -104,6 +104,7 @@ async def test_delete_and_restore_preserve_identity_without_permissions() -> Non
     assert restored["id"] == "u1"
     assert restored["status"] == "disabled"
     assert restored["deleted_at"] is None
+    assert restored["needs_grants"] is True  # BUG-15：恢复后启用前须先授域（机器可读标记）
     assert db.restored == ["u1"]
 
 

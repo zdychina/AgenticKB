@@ -204,9 +204,13 @@ class UserService:
         if target is None or target.get("deleted_at") is None:
             raise UserNotFound(user_id)
         try:
-            return await self._db.restore_user_account(user_id=user_id)
+            restored = await self._db.restore_user_account(user_id=user_id)
         except UserDeletionConflict:
             raise UserNotFound(user_id) from None
+        # BUG-15：恢复只找回身份、权限清空——member 启用前必须先重新授域。
+        # 机器可读标记，脚本调用方不必拿 PATCH status=active 的 400 试探。
+        restored["needs_grants"] = restored.get("site_role") == "member"
+        return restored
 
     async def assign_domain_grants(
         self,
