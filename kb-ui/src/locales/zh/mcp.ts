@@ -49,7 +49,7 @@ export const zhMcp = {
   'mcp.error.domainNotBound': '你未绑定该知识域，无法创建钥匙',
   'mcp.error.limitReached': '已达 10 把上限，请先吊销不需要的钥匙',
   // 确认框（列表快捷操作与配置抽屉共用；「取消」复用 common.cancel）
-  'mcp.confirm.rotateMessage': '轮换后「{name}」的旧密钥立即失效，正在使用它的 Agent 会断连。确定继续？',
+  'mcp.confirm.rotateMessage': '轮换后「{name}」的旧密钥立即失效，正在使用它的 Agent 将在下次调用时被拒（401）并断连；请更新 Agent 配置中的密钥并重建会话。确定继续？',
   'mcp.dialog.rotateTitle': '轮换密钥',
   'mcp.confirm.revokeMessage': '吊销后「{name}」立即失效且不可恢复，正在使用它的 Agent 会断连。确定吊销？',
   'mcp.dialog.revokeTitle': '吊销钥匙',

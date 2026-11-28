@@ -99,7 +99,7 @@ const EN = {
   descPlaceholder: 'Loading default description…',
   rotateButton: 'Rotate Key (the old secret stops working immediately)',
   revokeButton: 'Revoke This Key (irreversible)',
-  rotateMessage: 'After rotation, the old secret of "dev-assistant" stops working immediately, and Agents still using it will be disconnected. Continue?',
+  rotateMessage: 'After rotation, the old secret of "dev-assistant" stops working immediately: Agents still using it will be rejected (401) on the next call and disconnected. Update the secret in the Agent config and re-establish the session. Continue?',
   keyRotated: 'Secret rotated; the old secret is now invalid',
   freshKeyTitle: 'New secret (shown only this once): ',
   revokeMessage: 'After revocation, "dev-assistant" stops working immediately and cannot be recovered; Agents using it will be disconnected. Revoke?',

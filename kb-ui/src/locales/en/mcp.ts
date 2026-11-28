@@ -40,7 +40,7 @@ export const enMcp: Record<keyof typeof zhMcp, string> = {
   'mcp.view.configTitleNamed': 'Key Configuration · {name}',
   'mcp.error.domainNotBound': 'You are not bound to this domain and cannot create a key',
   'mcp.error.limitReached': 'The limit of 10 keys has been reached; revoke the keys you no longer need first',
-  'mcp.confirm.rotateMessage': 'After rotation, the old secret of "{name}" stops working immediately, and Agents still using it will be disconnected. Continue?',
+  'mcp.confirm.rotateMessage': 'After rotation, the old secret of "{name}" stops working immediately: Agents still using it will be rejected (401) on the next call and disconnected. Update the secret in the Agent config and re-establish the session. Continue?',
   'mcp.dialog.rotateTitle': 'Rotate Key',
   'mcp.confirm.revokeMessage': 'After revocation, "{name}" stops working immediately and cannot be recovered; Agents using it will be disconnected. Revoke?',
   'mcp.dialog.revokeTitle': 'Revoke Key',

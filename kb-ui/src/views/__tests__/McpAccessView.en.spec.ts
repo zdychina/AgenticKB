@@ -101,7 +101,7 @@ const EN = {
   configTitleNamed: 'Key Configuration · Agent A',
   domainNotBound: 'You are not bound to this domain and cannot create a key',
   limitReached: 'The limit of 10 keys has been reached; revoke the keys you no longer need first',
-  rotateMessage: 'After rotation, the old secret of "Agent A" stops working immediately, and Agents still using it will be disconnected. Continue?',
+  rotateMessage: 'After rotation, the old secret of "Agent A" stops working immediately: Agents still using it will be rejected (401) on the next call and disconnected. Update the secret in the Agent config and re-establish the session. Continue?',
   rotateTitle: 'Rotate Key',
   revokeMessage: 'After revocation, "Agent A" stops working immediately and cannot be recovered; Agents using it will be disconnected. Revoke?',
   revokeTitle: 'Revoke Key',
